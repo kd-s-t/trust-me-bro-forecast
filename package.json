@@ -7,13 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:migrate": "tsx scripts/db-migrate.ts",
-    "db:sync": "tsx scripts/db-sync.ts",
-    "r2:upload-json": "tsx scripts/r2-upload-json.ts"
+    "db:migrate": "tsx scripts/db-migrate.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.812.0",
-    "@aws-sdk/lib-storage": "^3.812.0",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/postcss": "^4.3.0",

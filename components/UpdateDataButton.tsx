@@ -1,9 +1,9 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { refreshChartData } from "@/lib/chart/refreshChart";
 import { cn } from "@/lib/utils";
 
 type SyncJobStatus =
@@ -31,16 +31,6 @@ type Status = {
 } | null;
 
 const POLL_MS = 2_000;
-
-function formatBytes(n: number): string {
-  if (n >= 1_000_000) {
-    return `${(n / 1_000_000).toFixed(1)} MB`;
-  }
-  if (n >= 1_000) {
-    return `${(n / 1_000).toFixed(0)} KB`;
-  }
-  return `${String(n)} B`;
-}
 
 function formatTimeMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) {
@@ -75,7 +65,6 @@ type Props = {
 };
 
 export function UpdateDataButton({ className }: Props) {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const abortRef = useRef(false);
@@ -86,7 +75,7 @@ export function UpdateDataButton({ className }: Props) {
         throw new Error("Cancelled");
       }
       const res = await fetch(
-        `/api/data/update?jobId=${encodeURIComponent(jobId)}`,
+        `/api/history?jobId=${encodeURIComponent(jobId)}`,
         { cache: "no-store" },
       );
       const data = (await res.json()) as JobResponse & { error?: string };
@@ -110,7 +99,7 @@ export function UpdateDataButton({ className }: Props) {
     setStatus({ kind: "loading", message: "Starting sync…" });
 
     try {
-      const res = await fetch("/api/data/update", { method: "POST" });
+      const res = await fetch("/api/history", { method: "POST" });
       const started = (await res.json()) as JobResponse & { error?: string };
       if (!res.ok) {
         throw new Error(started.error ?? `Start failed (${String(res.status)})`);
@@ -126,9 +115,9 @@ export function UpdateDataButton({ className }: Props) {
         kind: "success",
         message:
           job.message ??
-          `Saved public + R2 · ${(job.scanned ?? 0).toLocaleString()} rows · ${formatBytes(job.uploadedBytes ?? 0)} on R2 · latest ${formatTimeMs(job.newMaxTimeMs)}`,
+          `Postgres · ${(job.scanned ?? 0).toLocaleString()} scanned · +${(job.uploadedBytes ?? 0).toLocaleString()} inserted · latest ${formatTimeMs(job.newMaxTimeMs)}`,
       });
-      router.refresh();
+      refreshChartData();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed";
       setStatus({ kind: "error", message });
@@ -157,7 +146,7 @@ export function UpdateDataButton({ className }: Props) {
         {loading ? (
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
         ) : null}
-        Update data
+        Update history
       </span>
       {status !== null ? (
         <span

@@ -26,12 +26,14 @@ export type { ChartRow };
 
 type Props = {
   rows: ChartRow[];
+  forecastInsightLabel?: string | null;
 };
 
 /** TradingView lightweight-charts demo palette */
 const CANDLE_UP = "#26a69a";
 const CANDLE_DOWN = "#ef5350";
 const FORECAST_COLOR = "#2563eb";
+const AI_FORECAST_COLOR = "#7c3aed";
 
 const nfCompact = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -52,6 +54,8 @@ type ChartTooltipState = {
   observed: number | null;
   forecast: number | null;
   forecastNote: string | null;
+  aiForecast: number | null;
+  aiForecastNote: string | null;
   open: number | null;
   high: number | null;
   low: number | null;
@@ -86,6 +90,7 @@ function tooltipFromCrosshair(
   param: MouseEventParams<Time>,
   history: ISeriesApi<"Candlestick", Time>,
   forecast: ISeriesApi<"Line", Time>,
+  aiForecast: ISeriesApi<"Line", Time> | null,
   rows: ChartRow[],
 ): ChartTooltipState | null {
   if (param.point === undefined || param.time === undefined) {
@@ -102,13 +107,18 @@ function tooltipFromCrosshair(
   const forecastPoint = param.seriesData.get(forecast) as
     | LineData<Time>
     | undefined;
+  const aiPoint =
+    aiForecast !== null
+      ? (param.seriesData.get(aiForecast) as LineData<Time> | undefined)
+      : undefined;
 
   const observed =
     candle?.close ?? row?.observed ?? null;
   const forecastPrice =
     forecastPoint?.value ?? row?.forecast ?? null;
+  const aiPrice = aiPoint?.value ?? row?.aiForecast ?? null;
 
-  if (observed === null && forecastPrice === null) {
+  if (observed === null && forecastPrice === null && aiPrice === null) {
     return null;
   }
 
@@ -120,6 +130,8 @@ function tooltipFromCrosshair(
     observed,
     forecast: forecastPrice,
     forecastNote: row?.forecastNote ?? null,
+    aiForecast: aiPrice,
+    aiForecastNote: row?.aiForecastNote ?? null,
     open: candle?.open ?? null,
     high: candle?.high ?? null,
     low: candle?.low ?? null,
@@ -175,9 +187,11 @@ function applyDefaultVisibleRange(chart: IChartApi): void {
 function seriesDataFromRows(rows: ChartRow[]): {
   candles: CandlestickData<Time>[];
   forecast: LineData<Time>[];
+  aiForecast: LineData<Time>[];
 } {
   const closePoints: { timeMs: number; close: number }[] = [];
   const forecast: LineData<Time>[] = [];
+  const aiForecast: LineData<Time>[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]!;
@@ -187,15 +201,23 @@ function seriesDataFromRows(rows: ChartRow[]): {
     if (r.forecast !== null) {
       forecast.push({ time: msToUtc(r.timeMs), value: r.forecast });
     }
+    if (r.aiForecast !== null) {
+      aiForecast.push({ time: msToUtc(r.timeMs), value: r.aiForecast });
+    }
   }
 
-  if (closePoints.length > 0 && forecast.length > 0) {
-    const last = closePoints[closePoints.length - 1]!;
-    const firstTime = timeToMs(forecast[0]!.time);
-    if (firstTime > last.timeMs) {
+  const bridge = closePoints[closePoints.length - 1];
+  if (bridge !== undefined) {
+    if (forecast.length > 0 && timeToMs(forecast[0]!.time) > bridge.timeMs) {
       forecast.unshift({
-        time: msToUtc(last.timeMs),
-        value: last.close,
+        time: msToUtc(bridge.timeMs),
+        value: bridge.close,
+      });
+    }
+    if (aiForecast.length > 0 && timeToMs(aiForecast[0]!.time) > bridge.timeMs) {
+      aiForecast.unshift({
+        time: msToUtc(bridge.timeMs),
+        value: bridge.close,
       });
     }
   }
@@ -203,6 +225,7 @@ function seriesDataFromRows(rows: ChartRow[]): {
   return {
     candles: candlesFromClosePrices(closePoints),
     forecast: sortLineAsc(forecast),
+    aiForecast: sortLineAsc(aiForecast),
   };
 }
 
@@ -249,16 +272,41 @@ function ChartTooltip({ tip }: { tip: ChartTooltipState }) {
           ) : null}
         </div>
       ) : null}
+      {tip.aiForecast !== null ? (
+        <div
+          className={
+            tip.observed !== null || tip.forecast !== null
+              ? "mt-1.5 border-t border-border pt-1.5"
+              : undefined
+          }
+        >
+          <p className="tabular-nums" style={{ color: AI_FORECAST_COLOR }}>
+            <span className="text-[11px] text-muted-foreground">
+              News-adjusted{" "}
+            </span>
+            {formatUsd(tip.aiForecast)}
+          </p>
+          {tip.aiForecastNote !== null ? (
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+              {tip.aiForecastNote}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </motion.div>
   );
 }
 
-export function BtcChart({ rows }: Props) {
+export function BtcChart({
+  rows,
+  forecastInsightLabel = null,
+}: Props) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const historyRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null);
   const forecastRef = useRef<ISeriesApi<"Line", Time> | null>(null);
+  const aiForecastRef = useRef<ISeriesApi<"Line", Time> | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
@@ -315,19 +363,33 @@ export function BtcChart({ rows }: Props) {
       priceLineVisible: false,
     });
 
+    const aiForecast = chart.addSeries(LineSeries, {
+      color: AI_FORECAST_COLOR,
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+
     chartRef.current = chart;
     historyRef.current = history;
     forecastRef.current = forecast;
+    aiForecastRef.current = aiForecast;
 
     const applyRows = (dataRows: ChartRow[]) => {
       if (dataRows.length === 0) {
         return;
       }
-      const { candles, forecast: forecastData } = seriesDataFromRows(dataRows);
+      const {
+        candles,
+        forecast: forecastData,
+        aiForecast: aiData,
+      } = seriesDataFromRows(dataRows);
       if (candles.length > 0) {
         history.setData(candles);
       }
       forecast.setData(forecastData);
+      aiForecast.setData(aiData);
       applyDefaultVisibleRange(chart);
     };
 
@@ -355,6 +417,7 @@ export function BtcChart({ rows }: Props) {
         param,
         history,
         forecast,
+        aiForecast,
         rowsRef.current,
       );
       if (next === null) {
@@ -373,6 +436,7 @@ export function BtcChart({ rows }: Props) {
       chartRef.current = null;
       historyRef.current = null;
       forecastRef.current = null;
+      aiForecastRef.current = null;
     };
   }, []);
 
@@ -380,17 +444,28 @@ export function BtcChart({ rows }: Props) {
     const chart = chartRef.current;
     const history = historyRef.current;
     const forecast = forecastRef.current;
-    if (chart === null || history === null || forecast === null) {
+    const aiForecast = aiForecastRef.current;
+    if (
+      chart === null ||
+      history === null ||
+      forecast === null ||
+      aiForecast === null
+    ) {
       return;
     }
     if (rows.length === 0) {
       return;
     }
-    const { candles, forecast: forecastData } = seriesDataFromRows(rows);
+    const {
+      candles,
+      forecast: forecastData,
+      aiForecast: aiData,
+    } = seriesDataFromRows(rows);
     if (candles.length > 0) {
       history.setData(candles);
     }
     forecast.setData(forecastData);
+    aiForecast.setData(aiData);
     applyDefaultVisibleRange(chart);
   }, [rows]);
 
@@ -406,6 +481,14 @@ export function BtcChart({ rows }: Props) {
         className="relative min-h-0 min-w-0 flex-1 w-full"
       >
         <div ref={containerRef} className="absolute inset-0" />
+        {forecastInsightLabel !== null ? (
+          <div
+            className="pointer-events-none absolute right-3 top-3 z-10 max-w-[min(100%-1.5rem,22rem)] truncate rounded-md bg-violet-500/15 px-2 py-1 text-[10px] font-medium text-violet-950 ring-1 ring-inset ring-violet-500/30 backdrop-blur-sm dark:text-violet-100"
+            title={forecastInsightLabel}
+          >
+            {forecastInsightLabel}
+          </div>
+        ) : null}
         {tooltip?.visible === true ? <ChartTooltip tip={tooltip} /> : null}
       </div>
     </motion.div>

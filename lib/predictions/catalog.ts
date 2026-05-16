@@ -1,18 +1,17 @@
 export type PredictionItem = {
   id: string;
   label: string;
-  /** Shown on the chart today. */
   active?: boolean;
 };
 
 export type PredictionCategory = {
   id: string;
   label: string;
-  items: readonly PredictionItem[];
+  items: PredictionItem[];
 };
 
-/** Placeholder catalog — charts coming soon. */
-export const PREDICTION_CATALOG: readonly PredictionCategory[] = [
+/** Initial seed — migrated into Postgres on `npm run db:migrate`. */
+export const PREDICTION_CATALOG_SEED: readonly PredictionCategory[] = [
   {
     id: "stocks",
     label: "Top 3 stocks",

@@ -8,6 +8,7 @@ export type ChartRow = {
   forecast: number | null;
   forecastNote: string | null;
   aiForecast: number | null;
+  aiForecastNote: string | null;
   btcAmount: number;
 };
 
@@ -28,6 +29,7 @@ export function buildChartRows(
         forecast: p.price,
         forecastNote: p.note ?? null,
         aiForecast: null,
+        aiForecastNote: null,
         btcAmount: p.amount,
       });
     }
@@ -43,6 +45,7 @@ export function buildChartRows(
       forecast: null,
       forecastNote: null,
       aiForecast: null,
+      aiForecastNote: null,
       btcAmount: p.amount,
     });
   }
@@ -54,6 +57,7 @@ export function buildChartRows(
     forecast: null,
     forecastNote: null,
     aiForecast: null,
+    aiForecastNote: null,
     btcAmount: lastObs.amount,
   });
   if (forecast.length > 0) {
@@ -66,6 +70,7 @@ export function buildChartRows(
         forecast: p.price,
         forecastNote: p.note ?? null,
         aiForecast: null,
+        aiForecastNote: null,
         btcAmount: p.amount,
       });
     }
@@ -105,6 +110,7 @@ function appendAiTail(
       forecast: null,
       forecastNote: null,
       aiForecast: p.price,
+      aiForecastNote: p.note ?? null,
       btcAmount: p.amount,
     });
   }

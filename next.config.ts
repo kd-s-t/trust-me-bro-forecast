@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: [
-    "unzipper",
-    "@aws-sdk/client-s3",
-    "@aws-sdk/lib-storage",
-  ],
+  serverExternalPackages: ["unzipper"],
+  experimental: {
+    optimizePackageImports: ["lucide-react", "framer-motion", "lightweight-charts"],
+  },
 };
 
 export default nextConfig;

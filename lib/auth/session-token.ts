@@ -31,28 +31,32 @@ function fromBase64Url(value: string): Uint8Array {
   return bytes;
 }
 
+let hmacKeyPromise: Promise<CryptoKey> | undefined;
+
+function hmacKey(): Promise<CryptoKey> {
+  if (hmacKeyPromise === undefined) {
+    const enc = new TextEncoder();
+    hmacKeyPromise = crypto.subtle.importKey(
+      "raw",
+      enc.encode(authSecret()),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign", "verify"],
+    );
+  }
+  return hmacKeyPromise;
+}
+
 async function sign(payload: string): Promise<string> {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(authSecret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  const key = await hmacKey();
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
   return toBase64Url(new Uint8Array(sig));
 }
 
 async function verifySig(payload: string, signature: string): Promise<boolean> {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(authSecret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
+  const key = await hmacKey();
   try {
     return await crypto.subtle.verify(
       "HMAC",

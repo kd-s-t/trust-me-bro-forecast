@@ -1,8 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
-import { AppSidebar } from "@/components/AppSidebar";
-import { PredictionsRail } from "@/components/PredictionsRail";
+
+const AppSidebar = dynamic(
+  () => import("@/components/AppSidebar").then((m) => ({ default: m.AppSidebar })),
+  { ssr: false },
+);
+const PredictionsRail = dynamic(
+  () =>
+    import("@/components/PredictionsRail").then((m) => ({
+      default: m.PredictionsRail,
+    })),
+  { ssr: false },
+);
 
 type Props = {
   children: ReactNode;

@@ -8,9 +8,9 @@ config({ path: join(ROOT, ".env") });
 
 async function main(): Promise<void> {
   const t = Date.now();
-  const pts = await loadHistory();
+  const points = await loadHistory();
   console.log(
-    `OK: ${String(pts.length)} points in ${String(Date.now() - t)}ms · ${new Date(pts[0]!.timeMs).toISOString().slice(0, 10)} → ${new Date(pts[pts.length - 1]!.timeMs).toISOString().slice(0, 10)}`,
+    `OK: ${String(points.length)} points in ${String(Date.now() - t)}ms · ${new Date(points[0]!.timeMs).toISOString().slice(0, 10)} → ${new Date(points[points.length - 1]!.timeMs).toISOString().slice(0, 10)}`,
   );
 }
 

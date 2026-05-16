@@ -2,7 +2,7 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "functions": {
-    "app/api/data/update/route.ts": {
+    "app/api/history/route.ts": {
       "maxDuration": 300
     }
   }

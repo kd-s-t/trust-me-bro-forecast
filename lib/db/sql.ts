@@ -26,14 +26,23 @@ export function getDatabaseUrl(): string {
 export function getSql(): ReturnType<typeof postgres> {
   if (client === undefined) {
     client = postgres(getDatabaseUrl(), {
-      max: 1,
+      /** Chart loads history + forecast in parallel. */
+      max: 4,
       idle_timeout: 20,
       connect_timeout: 30,
+      /** CREATE IF NOT EXISTS on every request — skip noisy "already exists" notices. */
+      onnotice: (notice) => {
+        if (notice.code === "42P07") {
+          return;
+        }
+        console.warn("[postgres]", notice);
+      },
     });
   }
   return client;
 }
 
+/** For one-off scripts only — API routes keep the pool open across requests. */
 export async function closeSql(): Promise<void> {
   if (client !== undefined) {
     await client.end({ timeout: 5 });

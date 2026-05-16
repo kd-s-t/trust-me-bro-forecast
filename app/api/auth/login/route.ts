@@ -4,10 +4,7 @@ import {
   createSessionTokenValue,
   sessionCookieOptions,
 } from "@/lib/auth/session";
-import { runMigrations } from "@/lib/db/migrate";
 import { verifyUserCredentials } from "@/lib/db/users";
-import { closeSql } from "@/lib/db/sql";
-
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -32,7 +29,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       : "";
 
   try {
-    await runMigrations();
     const user = await verifyUserCredentials(username, password);
     if (user === null) {
       return NextResponse.json(
@@ -49,7 +45,5 @@ export async function POST(request: Request): Promise<NextResponse> {
     const message = e instanceof Error ? e.message : "Login failed";
     console.error("[auth/login]", message);
     return NextResponse.json({ error: message }, { status: 500 });
-  } finally {
-    await closeSql();
   }
 }
