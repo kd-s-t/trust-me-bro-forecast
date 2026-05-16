@@ -4,5 +4,11 @@
 .env
 .env*.local
 
-# Legacy local Kaggle exports (history lives in Postgres now)
+# Legacy local Kaggle exports
 /histories/
+
+# Generated price data (Update data; too large for GitHub)
+public/btc-price-history.json
+public/btc-price-history.csv
+public/btc-chart-display.json
+public/*.csv

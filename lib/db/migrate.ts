@@ -3,29 +3,14 @@ import { getSql } from "./sql";
 
 export async function runMigrations(): Promise<void> {
   const sql = getSql();
+
   await sql`
-    CREATE TABLE IF NOT EXISTS price_points (
-      symbol TEXT NOT NULL,
-      time_ms BIGINT NOT NULL,
-      price DOUBLE PRECISION NOT NULL,
-      amount DOUBLE PRECISION NOT NULL DEFAULT 1,
-      PRIMARY KEY (symbol, time_ms)
-    )
+    DROP TABLE IF EXISTS price_points
   `;
   await sql`
-    CREATE INDEX IF NOT EXISTS price_points_symbol_time_idx
-      ON price_points (symbol, time_ms)
+    DROP TABLE IF EXISTS sync_state
   `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS sync_state (
-      symbol TEXT PRIMARY KEY,
-      max_time_ms BIGINT,
-      kaggle_version_number INTEGER,
-      csv_bytes BIGINT NOT NULL DEFAULT 0,
-      csv_inner_path TEXT,
-      synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
+
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -34,5 +19,28 @@ export async function runMigrations(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS sync_jobs (
+      id UUID PRIMARY KEY,
+      symbol TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT,
+      phase TEXT,
+      scanned BIGINT NOT NULL DEFAULT 0,
+      uploaded_bytes BIGINT NOT NULL DEFAULT 0,
+      new_max_time_ms BIGINT,
+      kaggle_version INTEGER,
+      r2_key TEXT,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS sync_jobs_symbol_status_idx
+      ON sync_jobs (symbol, status, updated_at DESC)
+  `;
+
   await seedUsers();
 }

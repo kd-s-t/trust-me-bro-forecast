@@ -2,10 +2,7 @@ import path from "path";
 import { ChartPanel } from "@/components/ChartPanel";
 import { DashboardShell } from "@/components/DashboardShell";
 import { FadePanel, Stagger } from "@/components/MotionLayout";
-import {
-  DEFAULT_HISTORY_SYMBOL,
-  loadHistoryFromDb,
-} from "@/lib/db/history";
+import { loadHistory } from "@/lib/history/load";
 import { buildChartRows } from "@/lib/chartRows";
 import { loadForecastDir } from "@/lib/forecastData";
 
@@ -17,12 +14,17 @@ const FORECAST_DIR = path.join(process.cwd(), "forecast");
 export default async function Page() {
   let chartPoints;
   try {
-    chartPoints = await loadHistoryFromDb(DEFAULT_HISTORY_SYMBOL);
+    chartPoints = await loadHistory();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const showDbHint =
       msg.includes("DATABASE_URL") ||
+      msg.includes("HISTORY_JSON_URL") ||
+      msg.includes("R2") ||
+      msg.includes("Cloudflare") ||
       msg.includes("No price data") ||
+      msg.includes("No rows") ||
+      msg.includes("No price JSON") ||
       msg.includes("Update data");
     return (
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -38,10 +40,10 @@ export default async function Page() {
                   <>
                     {" "}
                     <span className="font-semibold text-violet-900 dark:text-violet-200">
-                      Set <code>DATABASE_URL</code> and{" "}
-                      <code>KAGGLE_API_TOKEN</code> on the host, then click{" "}
-                      <strong>Update data</strong> in the sidebar to import from
-                      Kaggle.
+                      Click <strong>Update data</strong> (
+                      <code>DATABASE_URL</code>, <code>KAGGLE_API_TOKEN</code>,
+                      R2) for full <code>btc-price-history.json</code> (all
+                      rows). On Vercel set <code>HISTORY_JSON_URL</code>.
                     </span>
                   </>
                 ) : null}

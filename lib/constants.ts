@@ -1,0 +1,1 @@
+export const DEFAULT_HISTORY_SYMBOL = "BTC";

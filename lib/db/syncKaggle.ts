@@ -3,159 +3,114 @@ import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { downloadDatasetZip } from "@/lib/kaggle/download";
-import { extractBtcCsvFromZip, streamBtcCsvFile } from "@/lib/kaggle/csv";
-import { fetchKaggleDatasetVersion } from "@/lib/kaggle/metadata";
+import { extractBtcCsvFromZip } from "@/lib/kaggle/csv";
+import { writeFullHistoryJsonFromCsv } from "@/lib/history/csvToFullJson";
+import {
+  getPublicHistoryJsonPath,
+  removeLegacyPublicCsv,
+  removePublicHistoryJson,
+} from "@/lib/history/publicHistory";
+import { isR2WriteEnabled } from "@/lib/r2/config";
+import { uploadHistoryJson } from "@/lib/r2/historyStorage";
 import { runMigrations } from "./migrate";
-import { getSyncState, upsertSyncState } from "./syncState";
-import { getSql } from "./sql";
+import { patchSyncJob } from "./syncJobs";
 
-const BATCH = 5_000;
+/** Kaggle BTC minute set is ~7.5M rows — reject interrupted writes. */
+const MIN_FULL_ROWS = 7_000_000;
+const MIN_FULL_JSON_BYTES = 100_000_000;
 
-export type SyncParseMode = "skipped" | "full" | "tail";
-
-export type SyncKaggleResult = {
-  inserted: number;
-  scanned: number;
-  skippedExisting: number;
-  previousMaxTimeMs: number | null;
-  newMaxTimeMs: number | null;
-  csvPath: string;
-  skippedDownload: boolean;
-  parseMode: SyncParseMode;
-};
-
-async function getMaxTimeMs(symbol: string): Promise<number | null> {
-  const sql = getSql();
-  const rows = (await sql`
-    SELECT MAX(time_ms) AS max_time_ms
-    FROM price_points
-    WHERE symbol = ${symbol}
-  `) as { max_time_ms: string | number | null }[];
-  const raw = rows[0]?.max_time_ms;
-  if (raw === null || raw === undefined) {
-    return null;
-  }
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+function formatMb(bytes: number): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
-async function insertBatch(
-  symbol: string,
-  points: { timeMs: number; price: number }[],
-): Promise<void> {
-  if (points.length === 0) {
-    return;
+function requireR2ForSync(): void {
+  if (!isR2WriteEnabled()) {
+    throw new Error(
+      "R2 is required for Update data. Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET in .env",
+    );
   }
-  const sql = getSql();
-  await sql`
-    INSERT INTO price_points ${sql(
-      points.map((p) => ({
-        symbol,
-        time_ms: p.timeMs,
-        price: p.price,
-        amount: 1,
-      })),
-    )}
-    ON CONFLICT (symbol, time_ms) DO NOTHING
-  `;
 }
 
 /**
- * Sync Kaggle → Postgres from the latest DB timestamp forward.
- * Skips download when Kaggle dataset version is unchanged; tail-reads CSV
- * when the file grew (append-only updates).
+ * Update data: Kaggle CSV (temp) → full JSON in `public/` + R2. Every row, no sampling.
  */
-export async function syncKaggleToDb(symbol: string): Promise<SyncKaggleResult> {
+export async function runSyncJob(jobId: string, symbol: string): Promise<void> {
+  void symbol;
+  requireR2ForSync();
   await runMigrations();
-  const previousMaxTimeMs = await getMaxTimeMs(symbol);
-  const afterMs = previousMaxTimeMs ?? -1;
-  const state = await getSyncState(symbol);
 
-  let kaggleVersion: number | null = null;
-  try {
-    const meta = await fetchKaggleDatasetVersion();
-    kaggleVersion = meta.versionNumber;
-    if (
-      state !== null &&
-      kaggleVersion === state.kaggle_version_number &&
-      previousMaxTimeMs !== null
-    ) {
-      return {
-        inserted: 0,
-        scanned: 0,
-        skippedExisting: 0,
-        previousMaxTimeMs,
-        newMaxTimeMs: previousMaxTimeMs,
-        csvPath: state.csv_inner_path ?? "",
-        skippedDownload: true,
-        parseMode: "skipped",
-      };
-    }
-  } catch {
-    /* metadata optional; continue with download */
-  }
+  await patchSyncJob(jobId, {
+    status: "running",
+    phase: "starting",
+    message: "Starting sync…",
+  });
 
   const zipPath = join(tmpdir(), `btc-kaggle-sync-${randomUUID()}.zip`);
   const csvPath = join(tmpdir(), `btc-csv-sync-${randomUUID()}.csv`);
-  await downloadDatasetZip(zipPath);
-
-  let scanned = 0;
-  let inserted = 0;
-  let skippedExisting = 0;
-  let newMaxTimeMs = previousMaxTimeMs;
-  let batch: { timeMs: number; price: number }[] = [];
-  let innerPath = "";
-  let parseMode: SyncParseMode = "full";
-
-  const flush = async (): Promise<void> => {
-    if (batch.length === 0) {
-      return;
-    }
-    await insertBatch(symbol, batch);
-    inserted += batch.length;
-    batch = [];
-  };
+  const jsonPath = getPublicHistoryJsonPath();
 
   try {
-    const extracted = await extractBtcCsvFromZip(zipPath, csvPath);
-    innerPath = extracted.innerPath;
-    const csvSize = extracted.size;
-
-    const useTail =
-      state !== null &&
-      state.csv_bytes > 0 &&
-      csvSize > state.csv_bytes &&
-      previousMaxTimeMs !== null;
-
-    const fromByte = useTail ? state.csv_bytes : 0;
-    parseMode = fromByte > 0 ? "tail" : "full";
-
-    await streamBtcCsvFile(
-      csvPath,
-      async (row) => {
-        scanned++;
-        if (row.timeMs <= afterMs) {
-          skippedExisting++;
-          return;
-        }
-        batch.push(row);
-        if (newMaxTimeMs === null || row.timeMs > newMaxTimeMs) {
-          newMaxTimeMs = row.timeMs;
-        }
-        if (batch.length >= BATCH) {
-          await flush();
-        }
-      },
-      { fromByte },
-    );
-    await flush();
-
-    await upsertSyncState(symbol, {
-      max_time_ms: newMaxTimeMs ?? previousMaxTimeMs,
-      kaggle_version_number: kaggleVersion,
-      csv_bytes: csvSize,
-      csv_inner_path: innerPath,
+    await patchSyncJob(jobId, {
+      phase: "download",
+      message: "Downloading full dataset from Kaggle…",
     });
+    await downloadDatasetZip(zipPath);
+
+    await patchSyncJob(jobId, {
+      phase: "extract",
+      message: "Extracting Kaggle CSV (temp)…",
+    });
+    await extractBtcCsvFromZip(zipPath, csvPath);
+
+    await patchSyncJob(jobId, {
+      phase: "json",
+      message: "Converting all rows → public/btc-price-history.json…",
+    });
+    const built = await writeFullHistoryJsonFromCsv(csvPath, jsonPath);
+    await removeLegacyPublicCsv();
+
+    if (built.rows < MIN_FULL_ROWS || built.bytes < MIN_FULL_JSON_BYTES) {
+      await removePublicHistoryJson();
+      throw new Error(
+        `Incomplete history: ${built.rows.toLocaleString()} rows (${formatMb(built.bytes)}). Need ~7.5M rows. Delete the file and run Update data again, or use: npm run db:sync`,
+      );
+    }
+
+    await patchSyncJob(jobId, {
+      phase: "upload",
+      message: "Uploading full JSON to R2…",
+    });
+    const r2Uploaded = await uploadHistoryJson(jsonPath);
+    if (r2Uploaded.bytes < MIN_FULL_JSON_BYTES) {
+      throw new Error(
+        `R2 upload is only ${formatMb(r2Uploaded.bytes)} — expected full JSON`,
+      );
+    }
+
+    await patchSyncJob(jobId, {
+      status: "completed",
+      phase: "done",
+      message: [
+        `public/btc-price-history.json ${formatMb(built.bytes)} · ${built.rows.toLocaleString()} rows`,
+        `R2 ${r2Uploaded.key} ${formatMb(r2Uploaded.bytes)}`,
+      ].join(" · "),
+      scanned: built.rows,
+      uploadedBytes: r2Uploaded.bytes,
+      newMaxTimeMs: built.lastTimeMs,
+      kaggleVersion: null,
+      r2Key: r2Uploaded.key,
+      error: null,
+    });
+  } catch (e) {
+    await removePublicHistoryJson().catch(() => {});
+    const message = e instanceof Error ? e.message : String(e);
+    await patchSyncJob(jobId, {
+      status: "failed",
+      phase: "error",
+      message: "Sync failed",
+      error: message,
+    });
+    throw e;
   } finally {
     for (const p of [zipPath, csvPath]) {
       try {
@@ -165,15 +120,4 @@ export async function syncKaggleToDb(symbol: string): Promise<SyncKaggleResult> 
       }
     }
   }
-
-  return {
-    inserted,
-    scanned,
-    skippedExisting,
-    previousMaxTimeMs,
-    newMaxTimeMs,
-    csvPath: innerPath,
-    skippedDownload: false,
-    parseMode,
-  };
 }

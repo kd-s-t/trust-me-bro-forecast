@@ -5,6 +5,7 @@ import { parse } from "csv-parse";
 import type { Readable } from "node:stream";
 import type { CentralDirectory } from "unzipper";
 import unzipper from "unzipper";
+import { normalizeTimeMs } from "@/lib/timeMs";
 import { CSV_NAME_SUBSTRING } from "./constants";
 
 export type KaggleCsvRow = {
@@ -47,10 +48,7 @@ export function parseTimeMs(raw: string): number {
   if (!Number.isFinite(v) || v !== Math.floor(v)) {
     throw new Error(`Non-integer time value: ${JSON.stringify(raw)}`);
   }
-  const iv = Math.floor(v);
-  if (iv >= 1_000_000_000_000) return iv;
-  if (iv >= 1_000_000_000) return iv * 1000;
-  throw new Error(`Unrecognized time scale: ${JSON.stringify(raw)}`);
+  return normalizeTimeMs(v);
 }
 
 function pickCsv(
@@ -123,9 +121,13 @@ export type StreamBtcCsvFileOptions = {
   fromByte?: number;
 };
 
+export type BtcCsvRowHandler = (
+  row: KaggleCsvRow,
+) => void | false | Promise<void | false>;
+
 export async function streamBtcCsv(
   source: Readable,
-  onRow: (row: KaggleCsvRow) => void | Promise<void>,
+  onRow: BtcCsvRowHandler,
   columnNames?: string[],
 ): Promise<number> {
   const parser = parse({
@@ -161,8 +163,12 @@ export async function streamBtcCsv(
       } catch {
         continue;
       }
-      await onRow({ timeMs, price });
+      const keepGoing = await onRow({ timeMs, price });
       count++;
+      if (keepGoing === false) {
+        parser.destroy();
+        break;
+      }
     }
   } finally {
     source.destroy();
@@ -172,7 +178,7 @@ export async function streamBtcCsv(
 
 export async function streamBtcCsvFile(
   csvPath: string,
-  onRow: (row: KaggleCsvRow) => void | Promise<void>,
+  onRow: BtcCsvRowHandler,
   options: StreamBtcCsvFileOptions = {},
 ): Promise<number> {
   const fromByte = options.fromByte ?? 0;
@@ -199,7 +205,7 @@ export async function streamBtcCsvFile(
 
 export async function streamBtcCsvFromZip(
   zipPath: string,
-  onRow: (row: KaggleCsvRow) => void | Promise<void>,
+  onRow: BtcCsvRowHandler,
 ): Promise<{ rowCount: number; csvPath: string }> {
   const directory = await unzipper.Open.file(zipPath);
   const picked = pickCsv(directory.files, CSV_NAME_SUBSTRING);

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +18,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-dvh">
       <body className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden">
-        <Toaster />
         {children}
       </body>
     </html>

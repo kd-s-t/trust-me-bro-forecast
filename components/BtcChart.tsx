@@ -189,6 +189,17 @@ function seriesDataFromRows(rows: ChartRow[]): {
     }
   }
 
+  if (closePoints.length > 0 && forecast.length > 0) {
+    const last = closePoints[closePoints.length - 1]!;
+    const firstTime = timeToMs(forecast[0]!.time);
+    if (firstTime > last.timeMs) {
+      forecast.unshift({
+        time: msToUtc(last.timeMs),
+        value: last.close,
+      });
+    }
+  }
+
   return {
     candles: candlesFromClosePrices(closePoints),
     forecast: sortLineAsc(forecast),
