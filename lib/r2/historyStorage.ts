@@ -14,7 +14,7 @@ import { isR2WriteEnabled } from "./config";
 import { getR2Client, requireR2Write } from "./client";
 import { getR2Config } from "./config";
 
-function readableFromGetObjectBody(body: unknown): Readable {
+async function readableFromGetObjectBody(body: unknown): Promise<Readable> {
   if (body === undefined || body === null) {
     throw new Error("R2 returned empty body");
   }
@@ -26,7 +26,8 @@ function readableFromGetObjectBody(body: unknown): Readable {
   }
   const stream = body as { transformToByteArray?: () => Promise<Uint8Array> };
   if (typeof stream.transformToByteArray === "function") {
-    return ReadableCtor.from(stream.transformToByteArray());
+    const bytes = await stream.transformToByteArray();
+    return ReadableCtor.from(Buffer.from(bytes));
   }
   throw new Error("Unsupported R2 response body");
 }
@@ -53,7 +54,7 @@ export async function getR2ObjectStream(objectKey: string): Promise<Readable> {
     }
     throw e;
   }
-  return readableFromGetObjectBody(out.Body);
+  return await readableFromGetObjectBody(out.Body);
 }
 
 export async function deleteR2Object(objectKey: string): Promise<void> {
@@ -133,7 +134,7 @@ async function fetchHistoryJsonText(): Promise<string> {
     throw e;
   }
 
-  const stream = readableFromGetObjectBody(out.Body);
+  const stream = await readableFromGetObjectBody(out.Body);
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
