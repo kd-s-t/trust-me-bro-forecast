@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChartLoading } from "@/components/ChartLoading";
+import { ChartLoadingOverlay } from "@/components/ChartLoadingOverlay";
 import { ChartPanel } from "@/components/ChartPanel";
 import { FadePanel, Stagger } from "@/components/MotionLayout";
 import { buildChartRows, type ChartRow } from "@/lib/chartRows";
@@ -21,6 +22,7 @@ type ChartReadyData = {
 
 type State =
   | { kind: "loading" }
+  | { kind: "refreshing"; data: ChartReadyData }
   | { kind: "ready"; data: ChartReadyData }
   | { kind: "error"; message: string };
 
@@ -28,7 +30,11 @@ export function ChartLoader() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   const load = useCallback(async () => {
-    setState({ kind: "loading" });
+    setState((prev) =>
+      prev.kind === "ready"
+        ? { kind: "refreshing", data: prev.data }
+        : { kind: "loading" },
+    );
     try {
       const runId = getSelectedForecastRunId();
       const forecastUrl =
@@ -125,10 +131,17 @@ export function ChartLoader() {
     );
   }
 
+  const data = state.data;
+
   return (
-    <ChartPanel
-      rows={state.data.rows}
-      forecastInsightLabel={state.data.forecastInsightLabel}
-    />
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <ChartPanel
+        rows={data.rows}
+        forecastInsightLabel={data.forecastInsightLabel}
+      />
+      {state.kind === "refreshing" ? (
+        <ChartLoadingOverlay label="Updating chart…" />
+      ) : null}
+    </div>
   );
 }

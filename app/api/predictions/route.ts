@@ -15,7 +15,7 @@ export async function GET(): Promise<NextResponse> {
   }
 
   try {
-    const categories = await listPredictionCategories();
+    const categories = await listPredictionCategories(auth.user);
     return NextResponse.json({ categories });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -45,7 +45,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       : "";
 
   try {
-    const category = await createPredictionCategory(label);
+    const category = await createPredictionCategory(auth.user, label);
     return NextResponse.json({ category }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

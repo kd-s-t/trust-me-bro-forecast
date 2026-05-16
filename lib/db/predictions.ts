@@ -20,14 +20,21 @@ type ItemRow = {
   sort_order: number;
 };
 
-export async function seedPredictionCatalog(): Promise<void> {
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+export async function seedPredictionCatalogForUser(
+  username: string,
+): Promise<void> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   let order = 0;
   for (const cat of PREDICTION_CATALOG_SEED) {
     await sql`
-      INSERT INTO prediction_categories (id, label, sort_order)
-      VALUES (${cat.id}, ${cat.label}, ${order})
-      ON CONFLICT (id) DO UPDATE SET
+      INSERT INTO prediction_categories (username, id, label, sort_order)
+      VALUES (${user}, ${cat.id}, ${cat.label}, ${order})
+      ON CONFLICT (username, id) DO UPDATE SET
         label = EXCLUDED.label,
         sort_order = EXCLUDED.sort_order
     `;
@@ -35,19 +42,21 @@ export async function seedPredictionCatalog(): Promise<void> {
     for (const item of cat.items) {
       await sql`
         INSERT INTO prediction_items (
+          username,
           id,
           category_id,
           label,
           active,
           sort_order
         ) VALUES (
+          ${user},
           ${item.id},
           ${cat.id},
           ${item.label},
           ${item.active === true},
           ${itemOrder}
         )
-        ON CONFLICT (category_id, id) DO UPDATE SET
+        ON CONFLICT (username, category_id, id) DO UPDATE SET
           label = EXCLUDED.label,
           active = EXCLUDED.active,
           sort_order = EXCLUDED.sort_order
@@ -58,11 +67,15 @@ export async function seedPredictionCatalog(): Promise<void> {
   }
 }
 
-export async function listPredictionCategories(): Promise<PredictionCategory[]> {
+export async function listPredictionCategories(
+  username: string,
+): Promise<PredictionCategory[]> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   const categories = (await sql`
     SELECT id, label, sort_order
     FROM prediction_categories
+    WHERE username = ${user}
     ORDER BY sort_order ASC, label ASC
   `) as CategoryRow[];
 
@@ -74,7 +87,8 @@ export async function listPredictionCategories(): Promise<PredictionCategory[]> 
   const items = (await sql`
     SELECT id, category_id, label, active, sort_order
     FROM prediction_items
-    WHERE category_id IN ${sql(categoryIds)}
+    WHERE username = ${user}
+      AND category_id IN ${sql(categoryIds)}
     ORDER BY sort_order ASC, label ASC
   `) as ItemRow[];
 
@@ -96,14 +110,22 @@ export async function listPredictionCategories(): Promise<PredictionCategory[]> 
   }));
 }
 
-async function nextCategoryId(baseLabel: string): Promise<string> {
+async function nextCategoryId(
+  username: string,
+  baseLabel: string,
+): Promise<string> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   const base = slugFromLabel(baseLabel);
   let candidate = base;
   let n = 2;
   for (;;) {
     const rows = (await sql`
-      SELECT 1 FROM prediction_categories WHERE id = ${candidate} LIMIT 1
+      SELECT 1
+      FROM prediction_categories
+      WHERE username = ${user}
+        AND id = ${candidate}
+      LIMIT 1
     `) as { "?column?": number }[];
     if (rows.length === 0) {
       return candidate;
@@ -114,10 +136,12 @@ async function nextCategoryId(baseLabel: string): Promise<string> {
 }
 
 async function nextItemId(
+  username: string,
   categoryId: string,
   baseLabel: string,
 ): Promise<string> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   const base = slugFromLabel(baseLabel);
   let candidate = base;
   let n = 2;
@@ -125,7 +149,8 @@ async function nextItemId(
     const rows = (await sql`
       SELECT 1
       FROM prediction_items
-      WHERE category_id = ${categoryId}
+      WHERE username = ${user}
+        AND category_id = ${categoryId}
         AND id = ${candidate}
       LIMIT 1
     `) as { "?column?": number }[];
@@ -138,6 +163,7 @@ async function nextItemId(
 }
 
 export async function createPredictionItem(
+  username: string,
   categoryId: string,
   label: string,
 ): Promise<PredictionItem> {
@@ -147,29 +173,37 @@ export async function createPredictionItem(
   }
 
   const sql = getSql();
+  const user = normalizeUsername(username);
   const catRows = (await sql`
-    SELECT id FROM prediction_categories WHERE id = ${categoryId} LIMIT 1
+    SELECT id
+    FROM prediction_categories
+    WHERE username = ${user}
+      AND id = ${categoryId}
+    LIMIT 1
   `) as { id: string }[];
   if (catRows[0] === undefined) {
     throw new Error("Category not found");
   }
 
-  const id = await nextItemId(categoryId, trimmed);
+  const id = await nextItemId(user, categoryId, trimmed);
   const rows = (await sql`
     SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
     FROM prediction_items
-    WHERE category_id = ${categoryId}
+    WHERE username = ${user}
+      AND category_id = ${categoryId}
   `) as { next_order: number }[];
   const sortOrder = Number(rows[0]?.next_order ?? 0);
 
   await sql`
     INSERT INTO prediction_items (
+      username,
       id,
       category_id,
       label,
       active,
       sort_order
     ) VALUES (
+      ${user},
       ${id},
       ${categoryId},
       ${trimmed},
@@ -182,6 +216,7 @@ export async function createPredictionItem(
 }
 
 export async function createPredictionCategory(
+  username: string,
   label: string,
 ): Promise<PredictionCategory> {
   const trimmed = label.trim();
@@ -190,16 +225,18 @@ export async function createPredictionCategory(
   }
 
   const sql = getSql();
-  const id = await nextCategoryId(trimmed);
+  const user = normalizeUsername(username);
+  const id = await nextCategoryId(user, trimmed);
   const rows = (await sql`
     SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
     FROM prediction_categories
+    WHERE username = ${user}
   `) as { next_order: number }[];
   const sortOrder = Number(rows[0]?.next_order ?? 0);
 
   await sql`
-    INSERT INTO prediction_categories (id, label, sort_order)
-    VALUES (${id}, ${trimmed}, ${sortOrder})
+    INSERT INTO prediction_categories (username, id, label, sort_order)
+    VALUES (${user}, ${id}, ${trimmed}, ${sortOrder})
   `;
 
   return { id, label: trimmed, items: [] };

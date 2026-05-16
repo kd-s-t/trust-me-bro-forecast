@@ -6,10 +6,14 @@ import {
 } from "@/lib/userProfile";
 import { getSql } from "./sql";
 
-const SEED_USERS = [
+export const SEED_USERS = [
   { username: "kenn", password: "1234", displayName: "Kenn" },
   { username: "john", password: "1234", displayName: "John" },
 ] as const;
+
+export function seedUsernames(): string[] {
+  return SEED_USERS.map((u) => u.username);
+}
 
 type UserRow = {
   username: string;

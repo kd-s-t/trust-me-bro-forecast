@@ -3,8 +3,10 @@ import type { PricePoint } from "@/lib/history";
 import type { ForecastHorizon } from "@/lib/forecast/horizons";
 import type { NewsArticle } from "@/lib/news/types";
 import { getSql } from "./sql";
+
 export type ForecastRun = {
   id: string;
+  username: string;
   symbol: string;
   horizon: ForecastHorizon;
   startTimeMs: number;
@@ -17,6 +19,7 @@ export type ForecastRun = {
 
 type ForecastRunRow = {
   id: string;
+  username: string;
   symbol: string;
   horizon: string;
   start_time_ms: string | number;
@@ -27,10 +30,15 @@ type ForecastRunRow = {
   created_at: Date | string;
 };
 
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
 function rowToRun(r: ForecastRunRow): ForecastRun {
   const news = Array.isArray(r.news_payload) ? r.news_payload : [];
   return {
     id: r.id,
+    username: r.username,
     symbol: r.symbol,
     horizon: r.horizon as ForecastHorizon,
     startTimeMs: Number(r.start_time_ms),
@@ -43,6 +51,7 @@ function rowToRun(r: ForecastRunRow): ForecastRun {
 }
 
 export async function insertForecastRun(input: {
+  username: string;
   symbol: string;
   horizon: ForecastHorizon;
   startTimeMs: number;
@@ -54,10 +63,12 @@ export async function insertForecastRun(input: {
 }): Promise<ForecastRun> {
   const sql = getSql();
   const id = randomUUID();
+  const user = normalizeUsername(input.username);
 
   await sql`
     INSERT INTO forecast_runs (
       id,
+      username,
       symbol,
       horizon,
       start_time_ms,
@@ -67,6 +78,7 @@ export async function insertForecastRun(input: {
       news_payload
     ) VALUES (
       ${id},
+      ${user},
       ${input.symbol},
       ${input.horizon},
       ${input.startTimeMs},
@@ -89,19 +101,39 @@ export async function insertForecastRun(input: {
     `;
   }
 
-  const run = await getForecastRun(id);
+  const run = await getForecastRun(id, user);
   if (run === null) {
     throw new Error("Failed to read forecast run after insert");
   }
   return run;
 }
 
-export async function getForecastRun(id: string): Promise<ForecastRun | null> {
+export async function deleteForecastRun(
+  id: string,
+  username: string,
+): Promise<boolean> {
   const sql = getSql();
+  const user = normalizeUsername(username);
+  const rows = (await sql`
+    DELETE FROM forecast_runs
+    WHERE id = ${id}
+      AND username = ${user}
+    RETURNING id
+  `) as { id: string }[];
+  return rows.length > 0;
+}
+
+export async function getForecastRun(
+  id: string,
+  username: string,
+): Promise<ForecastRun | null> {
+  const sql = getSql();
+  const user = normalizeUsername(username);
   const rows = (await sql`
     SELECT *
     FROM forecast_runs
     WHERE id = ${id}
+      AND username = ${user}
   `) as ForecastRunRow[];
   const r = rows[0];
   return r === undefined ? null : rowToRun(r);
@@ -115,13 +147,16 @@ export type ForecastRunSummary = {
 };
 
 export async function listForecastRuns(
+  username: string,
   symbol: string,
 ): Promise<ForecastRunSummary[]> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   const rows = (await sql`
     SELECT id, horizon, analysis, created_at
     FROM forecast_runs
-    WHERE symbol = ${symbol}
+    WHERE username = ${user}
+      AND symbol = ${symbol}
     ORDER BY created_at DESC
   `) as Pick<
     ForecastRunRow,
@@ -137,13 +172,16 @@ export async function listForecastRuns(
 }
 
 export async function getLatestForecastRun(
+  username: string,
   symbol: string,
 ): Promise<ForecastRun | null> {
   const sql = getSql();
+  const user = normalizeUsername(username);
   const rows = (await sql`
     SELECT *
     FROM forecast_runs
-    WHERE symbol = ${symbol}
+    WHERE username = ${user}
+      AND symbol = ${symbol}
     ORDER BY created_at DESC
     LIMIT 1
   `) as ForecastRunRow[];
@@ -172,8 +210,9 @@ async function loadForecastPointsForRun(
 
 export async function loadForecastPointsByRunId(
   runId: string,
+  username: string,
 ): Promise<{ run: ForecastRun; points: PricePoint[] } | null> {
-  const run = await getForecastRun(runId);
+  const run = await getForecastRun(runId, username);
   if (run === null) {
     return null;
   }
@@ -182,9 +221,10 @@ export async function loadForecastPointsByRunId(
 }
 
 export async function loadLatestForecastPoints(
+  username: string,
   symbol: string,
 ): Promise<{ run: ForecastRun; points: PricePoint[] } | null> {
-  const run = await getLatestForecastRun(symbol);
+  const run = await getLatestForecastRun(username, symbol);
   if (run === null) {
     return null;
   }

@@ -1,5 +1,35 @@
+import { createHash } from "node:crypto";
+
 /** Restored from `forecast/research_scenario_through_2027_01.json` (git bd64223). */
 export const RESEARCH_SCENARIO_RUN_ID = "a1111111-1111-4111-8111-111111111111";
+
+/** Stable research-scenario run id per user (kenn keeps legacy id). */
+export function researchScenarioRunIdForUser(username: string): string {
+  const normalized = username.trim().toLowerCase();
+  if (normalized === "kenn") {
+    return RESEARCH_SCENARIO_RUN_ID;
+  }
+  const hash = createHash("sha256")
+    .update(`tmbf-research:${normalized}`)
+    .digest("hex");
+  const variant = ((Number.parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80)
+    .toString(16)
+    .padStart(2, "0");
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    `4${hash.slice(13, 16)}`,
+    `${variant}${hash.slice(18, 20)}`,
+    hash.slice(20, 32),
+  ].join("-");
+}
+
+export function isResearchScenarioRunId(
+  runId: string,
+  username: string,
+): boolean {
+  return runId === researchScenarioRunIdForUser(username);
+}
 
 export type ResearchScenarioPoint = {
   timeMs: number;

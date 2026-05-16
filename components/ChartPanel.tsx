@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Loader2 } from "lucide-react";
+import { ChartLoadingOverlay } from "@/components/ChartLoadingOverlay";
 import type { ChartRow } from "@/lib/chartRows";
 
 const BtcChart = dynamic(
@@ -9,8 +9,8 @@ const BtcChart = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+      <div className="relative flex min-h-0 flex-1 flex-col bg-muted/15">
+        <ChartLoadingOverlay label="Loading chart engine…" />
       </div>
     ),
   },
@@ -26,7 +26,7 @@ export function ChartPanel({
   forecastInsightLabel = null,
 }: Props) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <BtcChart rows={rows} forecastInsightLabel={forecastInsightLabel} />
     </div>
   );

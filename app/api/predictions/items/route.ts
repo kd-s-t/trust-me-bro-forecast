@@ -39,7 +39,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const item = await createPredictionItem(categoryId, label);
+    const item = await createPredictionItem(auth.user, categoryId, label);
     return NextResponse.json({ item }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

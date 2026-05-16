@@ -4,8 +4,61 @@ import { Loader2, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { PredictionCategory, PredictionItem } from "@/lib/predictions/catalog";
+import { PREDICTION_CATALOG_SEED } from "@/lib/predictions/catalog";
 import { cn } from "@/lib/utils";
+
+const CATEGORY_LABEL_WIDTH: Record<string, string> = {
+  stocks: "w-[4.5rem]",
+  crypto: "w-[4.25rem]",
+  products: "w-[4.75rem]",
+  commodities: "w-[5.25rem]",
+};
+
+const ITEM_WIDTHS = ["w-[88%]", "w-[72%]", "w-[80%]"] as const;
+
+function PredictionsRailSkeleton() {
+  return (
+    <div
+      className="flex flex-col gap-3"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading predictions"
+    >
+      {PREDICTION_CATALOG_SEED.map((cat) => (
+        <div key={cat.id} className="space-y-0.5">
+          <div className="flex items-center gap-0.5 px-0.5">
+            <Skeleton
+              className={cn(
+                "h-2.5 shrink-0",
+                CATEGORY_LABEL_WIDTH[cat.id] ?? "w-16",
+              )}
+            />
+            <Skeleton className="size-3 shrink-0 rounded-sm" />
+          </div>
+          <ul className="space-y-0.5">
+            {cat.items.map((item, itemIndex) => (
+              <li key={item.id}>
+                <div className="flex w-full items-center gap-1 rounded px-1 py-0.5">
+                  {item.active === true ? (
+                    <Skeleton className="size-1 shrink-0 rounded-full" />
+                  ) : null}
+                  <Skeleton
+                    className={cn(
+                      "h-3.5 rounded-sm",
+                      ITEM_WIDTHS[itemIndex % ITEM_WIDTHS.length],
+                    )}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function PredictionItemRow({ item }: { item: PredictionItem }) {
   if (item.active === true) {
@@ -223,11 +276,13 @@ export function PredictionsRail() {
 
   return (
     <aside
-      className="flex w-[7%] min-w-[3.5rem] shrink-0 flex-col self-stretch border-r border-border bg-muted/20"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col border-r border-border bg-muted/20"
       aria-label="Predictions"
     >
       <div className="shrink-0 space-y-1.5 border-b border-border px-1 py-2">
-        {addingCategory ? (
+        {loading ? (
+          <Skeleton className="h-7 w-full rounded-md" />
+        ) : addingCategory ? (
           <form onSubmit={(ev) => void onAddCategory(ev)} className="space-y-1">
             <Input
               value={categoryLabel}
@@ -286,14 +341,7 @@ export function PredictionsRail() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 py-2">
-        {loading ? (
-          <div className="flex justify-center py-4">
-            <Loader2
-              className="size-4 animate-spin text-muted-foreground"
-              aria-hidden
-            />
-          </div>
-        ) : null}
+        {loading ? <PredictionsRailSkeleton /> : null}
 
         {error !== null && !loading ? (
           <p className="px-0.5 text-[9px] leading-tight text-destructive">{error}</p>

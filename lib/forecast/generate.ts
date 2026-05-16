@@ -13,6 +13,7 @@ import {
 
 export async function createForecastFromNews(
   horizon: ForecastHorizon,
+  username: string,
   symbol: string = DEFAULT_HISTORY_SYMBOL,
 ): Promise<{
   run: ForecastRun;
@@ -32,6 +33,7 @@ export async function createForecastFromNews(
   });
 
   const run = await insertForecastRun({
+    username,
     symbol,
     horizon,
     startTimeMs: spot.timeMs,

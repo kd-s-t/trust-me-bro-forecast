@@ -13,7 +13,7 @@ export async function GET(): Promise<NextResponse> {
   }
 
   try {
-    const runs = await loadForecastRunList();
+    const runs = await loadForecastRunList(auth.user);
     return NextResponse.json({ runs });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

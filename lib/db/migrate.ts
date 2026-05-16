@@ -1,6 +1,6 @@
-import { seedPredictionCatalog } from "./predictions";
+import { seedPredictionCatalogForUser } from "./predictions";
 import { seedResearchScenarioForecast } from "./seedResearchScenario";
-import { seedUsers } from "./users";
+import { seedUsers, seedUsernames } from "./users";
 import { getSql } from "./sql";
 
 export async function runMigrations(): Promise<void> {
@@ -77,6 +77,7 @@ export async function runMigrations(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS forecast_runs (
       id UUID PRIMARY KEY,
+      username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
       symbol TEXT NOT NULL,
       horizon TEXT NOT NULL,
       start_time_ms BIGINT NOT NULL,
@@ -86,10 +87,6 @@ export async function runMigrations(): Promise<void> {
       news_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  `;
-  await sql`
-    CREATE INDEX IF NOT EXISTS forecast_runs_symbol_created_idx
-      ON forecast_runs (symbol, created_at DESC)
   `;
 
   await sql`
@@ -106,25 +103,114 @@ export async function runMigrations(): Promise<void> {
 
   await sql`
     CREATE TABLE IF NOT EXISTS prediction_categories (
-      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+      id TEXT NOT NULL,
       label TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (username, id)
     )
   `;
   await sql`
     CREATE TABLE IF NOT EXISTS prediction_items (
+      username TEXT NOT NULL,
       id TEXT NOT NULL,
-      category_id TEXT NOT NULL REFERENCES prediction_categories(id) ON DELETE CASCADE,
+      category_id TEXT NOT NULL,
       label TEXT NOT NULL,
       active BOOLEAN NOT NULL DEFAULT false,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (category_id, id)
+      PRIMARY KEY (username, category_id, id),
+      FOREIGN KEY (username, category_id)
+        REFERENCES prediction_categories(username, id) ON DELETE CASCADE
     )
   `;
 
+  await migrateUserScopedSchema(sql);
+
   await seedUsers();
-  await seedPredictionCatalog();
-  await seedResearchScenarioForecast();
+  for (const username of seedUsernames()) {
+    await seedPredictionCatalogForUser(username);
+    await seedResearchScenarioForecast(username);
+  }
+
+  await sql`
+    ALTER TABLE forecast_runs
+    ADD CONSTRAINT forecast_runs_username_fkey
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+  `.catch(() => undefined);
+}
+
+async function migrateUserScopedSchema(
+  sql: ReturnType<typeof getSql>,
+): Promise<void> {
+  await sql`
+    ALTER TABLE forecast_runs ADD COLUMN IF NOT EXISTS username TEXT
+  `;
+  await sql`
+    UPDATE forecast_runs
+    SET username = 'kenn'
+    WHERE username IS NULL
+  `;
+
+  await sql`
+    ALTER TABLE prediction_categories ADD COLUMN IF NOT EXISTS username TEXT
+  `;
+  await sql`
+    UPDATE prediction_categories
+    SET username = 'kenn'
+    WHERE username IS NULL
+  `;
+
+  await sql`
+    ALTER TABLE prediction_items ADD COLUMN IF NOT EXISTS username TEXT
+  `;
+  await sql`
+    UPDATE prediction_items pi
+    SET username = c.username
+    FROM prediction_categories c
+    WHERE pi.category_id = c.id
+      AND pi.username IS NULL
+      AND c.username IS NOT NULL
+  `;
+  await sql`
+    UPDATE prediction_items
+    SET username = 'kenn'
+    WHERE username IS NULL
+  `;
+
+  await sql`
+    ALTER TABLE prediction_items
+    DROP CONSTRAINT IF EXISTS prediction_items_category_id_fkey
+  `;
+  await sql`
+    ALTER TABLE prediction_categories
+    DROP CONSTRAINT IF EXISTS prediction_categories_pkey
+  `;
+  await sql`
+    ALTER TABLE prediction_items
+    DROP CONSTRAINT IF EXISTS prediction_items_pkey
+  `;
+  await sql`
+    ALTER TABLE prediction_categories
+    ADD PRIMARY KEY (username, id)
+  `.catch(() => undefined);
+  await sql`
+    ALTER TABLE prediction_items
+    ADD PRIMARY KEY (username, category_id, id)
+  `.catch(() => undefined);
+  await sql`
+    ALTER TABLE prediction_items
+    ADD CONSTRAINT prediction_items_category_fkey
+    FOREIGN KEY (username, category_id)
+    REFERENCES prediction_categories(username, id) ON DELETE CASCADE
+  `.catch(() => undefined);
+
+  await sql`
+    DROP INDEX IF EXISTS forecast_runs_symbol_created_idx
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS forecast_runs_user_symbol_created_idx
+      ON forecast_runs (username, symbol, created_at DESC)
+  `;
 }

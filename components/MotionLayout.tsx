@@ -16,6 +16,21 @@ const fadeItem = {
   },
 };
 
+/** Fade + slide for sidebar controls (enter / exit). */
+export const fadeInOutItem = {
+  hidden: { opacity: 0, y: 10 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.34, ease },
+  },
+  exit: {
+    opacity: 0,
+    y: -8,
+    transition: { duration: 0.22, ease },
+  },
+};
+
 export function MotionHeader({ children }: { children: ReactNode }) {
   return (
     <motion.header
@@ -31,9 +46,13 @@ export function MotionHeader({ children }: { children: ReactNode }) {
 export function Stagger({
   children,
   className,
+  stagger = 0.1,
+  delayChildren = 0.05,
 }: {
   children: ReactNode;
   className?: string;
+  stagger?: number;
+  delayChildren?: number;
 }) {
   return (
     <motion.div
@@ -42,8 +61,43 @@ export function Stagger({
       animate="show"
       variants={{
         hidden: {},
-        show: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
+        show: {
+          transition: { staggerChildren: stagger, delayChildren },
+        },
       }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+export function StaggerItem({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <motion.div className={className} variants={fadeInOutItem}>
+      {children}
+    </motion.div>
+  );
+}
+
+export function MotionControlsSection({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.42, ease, delay: 0.12 }}
     >
       {children}
     </motion.div>
