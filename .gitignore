@@ -1,0 +1,8 @@
+/node_modules
+/.next
+/out
+.env
+.env*.local
+
+# Legacy local Kaggle exports (history lives in Postgres now)
+/histories/

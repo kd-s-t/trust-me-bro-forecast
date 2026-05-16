@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "functions": {
+    "app/api/data/update/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

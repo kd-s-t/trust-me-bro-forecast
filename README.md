@@ -1,47 +1,42 @@
-# bitcoin-forecast
+<p align="center">
+  <img src="public/trust-me-bro-forecast.png" alt="Trust Me Bro Forecast" width="360" />
+</p>
 
-Next.js app: local JSON under `histories/`, chart, optional forecast series from `forecast/`.
+# trust-me-bro-forecast
 
-## Run the app
+Bitcoin price chart: history from **Postgres** (Kaggle), outlook from `forecast/`.
+
+## Local setup
 
 ```bash
 npm install
-npm run dev
+createdb trust-me-bro-forecast   # once
 ```
 
-Open the URL Next prints (default `http://localhost:3000`).
+Copy `.env.example` → `.env` (`DATABASE_URL`, `KAGGLE_API_TOKEN`, `AUTH_SECRET`).
 
-## Refresh price history from Kaggle
-
-Export pulls the dataset, parses the matching CSV inside the ZIP, and writes **`histories/kaggle_bitcoin.json`** (mergeable with other `histories/*.json` files).
-
-### Command
+Sign in at `/login` — demo users: **kenn** / **john**, password **1234**.
 
 ```bash
-npm run kaggle:export
+npm run dev   # http://localhost:3000
 ```
 
-Pass CLI flags **after** `--`:
+Open the app and click **Update data** (top-left) to create tables and import from Kaggle.  
+Optional locally: `npm run db:migrate` / `npm run db:sync` do the same thing as the button.
 
-```bash
-npm run kaggle:export -- --help
-npm run kaggle:export -- --all
-npm run kaggle:export -- --max-rows 50000
-npm run kaggle:export -- --csv /absolute/path/to/file.csv
-npm run kaggle:export -- --out histories/custom.json
-```
+Sync only inserts rows newer than `MAX(time_ms)`. If the Kaggle dataset version is unchanged, download is skipped; if the CSV grew, only the new tail is parsed.
 
-### Auth (ZIP download only)
+## Kaggle auth
 
-One of:
+Set on the host (Vercel env or `.env` locally):
 
-- **`KAGGLE_API_TOKEN`** in `bitcoin-forecast/.env` (token must start with `KGAT_`)
-- **`KAGGLE_USERNAME`** and **`KAGGLE_KEY`** in the environment
-- **`~/.kaggle/kaggle.json`** with `"username"` and `"key"`
+- `KAGGLE_API_TOKEN` (`KGAT_…`), or
+- `KAGGLE_USERNAME` + `KAGGLE_KEY`
 
-Local CSV mode (`--csv`) does not call Kaggle.
+## Vercel
 
-### Defaults
+1. Add **`DATABASE_URL`** (e.g. Neon) and **`KAGGLE_API_TOKEN`** in project settings.
+2. Deploy — no CLI on the server.
+3. Open the site → **Update data** for the first import (can take several minutes; use a plan with long function timeouts).
 
-Without `--all`, only the **last 30 000** rows are kept for a smaller JSON. With **`--all`**, every streamed row is written (large file and long runtime; the dev server may need more heap to load it).
-# trust-me-bro-forecast
+Tables are created automatically when you sync or load the chart.
