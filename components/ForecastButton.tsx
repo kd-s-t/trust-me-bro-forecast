@@ -9,6 +9,7 @@ import {
   FORECAST_HORIZONS,
   type ForecastHorizon,
 } from "@/lib/forecast/horizons";
+import { setSelectedForecastHorizon } from "@/lib/forecast/selectedHorizon";
 import { cn } from "@/lib/utils";
 
 const HORIZON_SHORT: Record<ForecastHorizon, string> = {
@@ -24,7 +25,12 @@ type Props = {
 };
 
 export function ForecastButton({ className }: Props) {
-  const [horizon, setHorizon] = useState<ForecastHorizon>("3m");
+  const [horizon, setHorizonState] = useState<ForecastHorizon>("3m");
+
+  function setHorizon(h: ForecastHorizon): void {
+    setHorizonState(h);
+    setSelectedForecastHorizon(h);
+  }
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [statusIsWarning, setStatusIsWarning] = useState(false);

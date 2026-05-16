@@ -1,5 +1,6 @@
 "use client";
 
+import { AssistantBro } from "@/components/AssistantBro";
 import { BrandLogo } from "@/components/BrandLogo";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ForecastButton } from "@/components/ForecastButton";
@@ -17,7 +18,7 @@ const ease = [0.22, 1, 0.36, 1] as const;
 
 export function AppSidebar() {
   return (
-    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col border-l border-border bg-card">
+    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l border-border bg-card">
       <motion.div
         className="shrink-0 border-b border-border px-3 pt-3 pb-2"
         initial={{ opacity: 0, y: -8 }}
@@ -46,11 +47,12 @@ export function AppSidebar() {
           <StaggerItem>
             <ForecastButton />
           </StaggerItem>
-          <StaggerItem>
-            <LogoutButton className="w-full" />
-          </StaggerItem>
         </Stagger>
       </MotionControlsSection>
+      <AssistantBro />
+      <footer className="mt-auto flex shrink-0 justify-center border-t border-border bg-card px-3 py-3">
+        <LogoutButton />
+      </footer>
     </aside>
   );
 }

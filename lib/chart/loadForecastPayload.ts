@@ -7,6 +7,7 @@ import {
 import { DEFAULT_HISTORY_SYMBOL } from "@/lib/db/history";
 import type { PricePoint } from "@/lib/history";
 import { formatHorizonLabel } from "@/lib/forecast/horizons";
+import { ASSISTANT_BRO_ANALYSIS_PREFIX } from "@/lib/ai/assistantBroPrompt";
 import { isResearchScenarioRunId } from "@/lib/forecast/researchScenario";
 
 export type ForecastApiPayload = {
@@ -33,9 +34,11 @@ function buildInsightLabel(
     .join(" · ");
   const kind = isResearchScenarioRunId(run.id, username)
     ? "Research scenario"
-    : run.analysis.startsWith("News outlook")
-      ? "News outlook"
-      : "AI forecast";
+    : run.analysis.startsWith(ASSISTANT_BRO_ANALYSIS_PREFIX)
+      ? "Assistant Bro"
+      : run.analysis.startsWith("News outlook")
+        ? "News outlook"
+        : "AI forecast";
   return [
     `${kind} · ${formatHorizonLabel(run.horizon)}`,
     headlines !== ""
@@ -70,6 +73,14 @@ export function formatForecastRunLabel(
   const horizon = formatHorizonLabel(run.horizon);
   if (isResearchScenarioRunId(run.id, username)) {
     return `Research scenario · ${date}`;
+  }
+  if (run.analysis.startsWith(ASSISTANT_BRO_ANALYSIS_PREFIX)) {
+    const snippet = run.analysis
+      .slice(ASSISTANT_BRO_ANALYSIS_PREFIX.length)
+      .trim();
+    const short =
+      snippet.length > 36 ? `${snippet.slice(0, 36)}…` : snippet;
+    return `Assistant Bro · ${date} · ${short}`;
   }
   const snippet = run.analysis.trim();
   if (snippet.length > 0) {

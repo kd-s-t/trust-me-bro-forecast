@@ -44,7 +44,7 @@ export function ProfileHeader({ className }: Props) {
     return (
       <div
         className={cn(
-          "flex items-center justify-center border-b border-border px-3 py-4",
+          "flex items-center justify-center border-b border-border px-3 py-3",
           className,
         )}
       >
@@ -60,18 +60,18 @@ export function ProfileHeader({ className }: Props) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center border-b border-border px-3 py-4 text-center",
+        "flex items-center justify-center gap-2.5 border-b border-border px-3 py-3",
         className,
       )}
     >
       <img
         src={profile.avatarUrl}
         alt={profile.displayName}
-        width={48}
-        height={48}
-        className="size-12 shrink-0 rounded-full border border-border bg-muted object-cover"
+        width={40}
+        height={40}
+        className="size-10 shrink-0 rounded-full border border-border bg-muted object-cover"
       />
-      <p className="mt-2 w-full truncate text-sm font-semibold leading-tight text-foreground">
+      <p className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground">
         {profile.displayName}
       </p>
     </div>

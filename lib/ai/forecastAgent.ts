@@ -121,6 +121,7 @@ function interpolateToWeekly(
   return out;
 }
 
+/** Quick forecast: NewsAPI top 3 → OpenAI or news-sentiment path (no custom instructions). */
 export async function generateForecastFromNews(input: {
   articles: NewsArticle[];
   horizon: ForecastHorizon;
