@@ -10,6 +10,7 @@ import {
   type ForecastHorizon,
 } from "@/lib/forecast/horizons";
 import { setSelectedForecastHorizon } from "@/lib/forecast/selectedHorizon";
+import { userFacingMessage } from "@/lib/errors/userFacingMessage";
 import { cn } from "@/lib/utils";
 
 const HORIZON_SHORT: Record<ForecastHorizon, string> = {
@@ -79,7 +80,7 @@ export function ForecastButton({ className }: Props) {
       refreshChartData();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Forecast failed";
-      setError(msg);
+      setError(userFacingMessage(msg));
       setStatus(null);
     } finally {
       setLoading(false);

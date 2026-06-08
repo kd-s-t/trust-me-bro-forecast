@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { syncJobPayload } from "@/lib/api/syncJobPayload";
 import { requireAuth } from "@/lib/auth/requireAuth";
+import {
+  type ChartHistoryView,
+  isChartHistoryView,
+} from "@/lib/chart/historyView";
 import { loadHistoryPayload } from "@/lib/chart/loadHistoryPayload";
 import { DEFAULT_HISTORY_SYMBOL } from "@/lib/constants";
 import {
@@ -34,8 +38,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
   }
 
+  const viewParam = new URL(request.url).searchParams.get("view");
+  const view: ChartHistoryView = isChartHistoryView(viewParam)
+    ? viewParam
+    : "default";
+
   try {
-    const data = await loadHistoryPayload();
+    const data = await loadHistoryPayload(view);
     return NextResponse.json(data);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

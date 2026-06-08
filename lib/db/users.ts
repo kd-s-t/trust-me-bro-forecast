@@ -6,6 +6,12 @@ import {
 } from "@/lib/userProfile";
 import { getSql } from "./sql";
 
+function seedEmail(username: string): string | null {
+  const key = `USER_${username.toUpperCase()}_EMAIL`;
+  const raw = process.env[key]?.trim();
+  return raw === undefined || raw === "" ? null : raw;
+}
+
 export const SEED_USERS = [
   { username: "kenn", password: "1234", displayName: "Kenn" },
   { username: "john", password: "1234", displayName: "John" },
@@ -20,21 +26,24 @@ type UserRow = {
   password_hash: string;
   display_name: string | null;
   avatar_url: string | null;
+  email: string | null;
 };
 
 export async function seedUsers(): Promise<void> {
   const sql = getSql();
   for (const { username, password, displayName } of SEED_USERS) {
     const hash = hashPassword(password);
+    const email = seedEmail(username);
     await sql`
-      INSERT INTO users (username, password_hash, display_name)
-      VALUES (${username}, ${hash}, ${displayName})
+      INSERT INTO users (username, password_hash, display_name, email)
+      VALUES (${username}, ${hash}, ${displayName}, ${email})
       ON CONFLICT (username) DO UPDATE SET
         password_hash = EXCLUDED.password_hash,
         display_name = COALESCE(
           NULLIF(TRIM(users.display_name), ''),
           EXCLUDED.display_name
-        )
+        ),
+        email = COALESCE(users.email, EXCLUDED.email)
     `;
   }
 }
@@ -49,11 +58,11 @@ export async function getUserProfile(
 
   const sql = getSql();
   const rows = (await sql`
-    SELECT username, display_name, avatar_url
+    SELECT username, display_name, avatar_url, email
     FROM users
     WHERE username = ${normalized}
     LIMIT 1
-  `) as Pick<UserRow, "username" | "display_name" | "avatar_url">[];
+  `) as Pick<UserRow, "username" | "display_name" | "avatar_url" | "email">[];
 
   const row = rows[0];
   if (row === undefined) {
@@ -62,6 +71,7 @@ export async function getUserProfile(
 
   const displayName = row.display_name?.trim();
   const avatarUrl = row.avatar_url?.trim();
+  const email = row.email?.trim();
 
   return {
     username: row.username,
@@ -69,6 +79,8 @@ export async function getUserProfile(
       displayName !== undefined && displayName !== ""
         ? displayName
         : defaultDisplayName(row.username),
+    email:
+      email !== undefined && email !== "" ? email : null,
     avatarUrl:
       avatarUrl !== undefined && avatarUrl !== ""
         ? avatarUrl

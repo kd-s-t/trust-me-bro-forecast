@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { ChartLoadingOverlay } from "@/components/ChartLoadingOverlay";
+import type { ChartHistoryView } from "@/lib/chart/historyView";
 import type { ChartRow } from "@/lib/chartRows";
 
 const BtcChart = dynamic(
@@ -18,16 +19,22 @@ const BtcChart = dynamic(
 
 type Props = {
   rows: ChartRow[];
+  historyView?: ChartHistoryView;
   forecastInsightLabel?: string | null;
 };
 
 export function ChartPanel({
   rows,
+  historyView = "default",
   forecastInsightLabel = null,
 }: Props) {
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      <BtcChart rows={rows} forecastInsightLabel={forecastInsightLabel} />
+      <BtcChart
+        rows={rows}
+        historyView={historyView}
+        forecastInsightLabel={forecastInsightLabel}
+      />
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { withForecastAnchor } from "@/lib/chart/anchorForecast";
+import { userFacingMessage } from "@/lib/errors/userFacingMessage";
 import type { ForecastHorizon } from "@/lib/forecast/horizons";
 import { formatHorizonLabel, weeklyTimestamps } from "@/lib/forecast/horizons";
 import type { PricePoint } from "@/lib/history";
@@ -185,7 +187,11 @@ Produce a weekly price path driven only by how this news affects demand, regulat
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`OpenAI error (${String(res.status)}): ${errText.slice(0, 300)}`);
+    throw new Error(
+      userFacingMessage(
+        `OpenAI error (${String(res.status)}): ${errText.slice(0, 300)}`,
+      ),
+    );
   }
 
   const body = (await res.json()) as {
@@ -227,12 +233,13 @@ Produce a weekly price path driven only by how this news affects demand, regulat
       ? parsed.reasoning.trim()
       : "AI forecast from top 3 bitcoin headlines.";
 
-  const points = interpolateToWeekly(
+  const interpolated = interpolateToWeekly(
     rawPoints,
     schedule,
     input.startMs,
     input.startPrice,
   );
+  const points = withForecastAnchor(input.startMs, input.startPrice, interpolated);
 
   return { analysis: reasoning, points, usedAi: true, method: "openai" };
 }

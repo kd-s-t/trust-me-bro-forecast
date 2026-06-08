@@ -4,24 +4,87 @@
 
 # trust-me-bro-forecast
 
-Bitcoin chart: **Postgres** history (Kaggle) + **AI forecasts** stored in Postgres.
+Bitcoin chart with **Postgres** price history (Kaggle + Binance tail) and **AI forecasts** (NewsAPI + OpenAI or news-sentiment fallback).
 
-## Forecast flow
+**Live:** [trust-me-bro-forecast.vercel.app](https://trust-me-bro-forecast.vercel.app)
 
-1. Pick horizon: **1m · 3m · 6m · 9m · 1yr**
-2. Click **Forecast** → NewsAPI top 3 headlines → OpenAI path if `OPENAI_API_KEY` is set; otherwise a **news-sentiment** weekly path (bullish/bearish tilt from headlines)
-3. Saved to `forecast_runs` + `forecast` — chart shows the **latest** run only
+## Data flow
 
-## Local setup
+```mermaid
+flowchart TB
+  subgraph bulk["Bulk history (manual)"]
+    U1[Update history] --> K[Kaggle dataset]
+    K --> PG[(Postgres history)]
+  end
 
-```bash
-cp .env.example .env
-# DATABASE_URL, KAGGLE_API_TOKEN, NEWSAPI_API_KEY, OPENAI_API_KEY
+  subgraph chart["Chart load"]
+    CL[Open chart / refresh] --> API_H["GET /api/history"]
+    API_H --> SYNC0[POST /api/binance/sync]
+    SYNC0 --> PG
+    API_H --> PG
+    PG --> SAMPLE[Sample points for chart]
+    SAMPLE --> UI[Chart candles]
+    POLL[Every 15s: POST /api/binance/sync] --> PG
+    POLL --> UI
+  end
 
-npm run db:migrate   # once — creates tables (not on every page load)
-npm run dev          # http://localhost:3000
+  subgraph forecast["Forecast"]
+    U2[Forecast + horizon] --> N[NewsAPI headlines]
+    N --> AI{OPENAI_API_KEY?}
+    AI -->|yes| OAI[OpenAI]
+    AI -->|no| SENT[News-sentiment path]
+    OAI --> FR[(Postgres forecast_runs)]
+    SENT --> FR
+    FR --> API_F["GET /api/forecast"]
+    API_F --> UI
+  end
+
+  subgraph sidebar["Sidebar (optional)"]
+    KEYS[Binance API keys] --> BAL["GET /api/binance/balance"]
+    BAL --> SB[Spot balance + UID]
+  end
+
+  bulk --> chart
 ```
 
-Chart loads `GET /api/history` + `GET /api/forecast` in parallel. **Update data** uses `POST /api/history` and polls `GET /api/history?jobId=…`. **Forecast** uses `POST /api/forecast`.
+**History:** Kaggle fills the long series (full replace). Binance **upserts from the latest DB timestamp → now** every **15s** while the chart is open, plus **Update market** for a manual pull (sync → DB → reload graph for the active **24h** or **All** view).
 
-**Update data** (sidebar): Kaggle download → CSV → JSON → Postgres (full dataset, all rows). Then **Forecast**.
+## Setup
+
+**Requires:** Node.js 18+, Postgres, npm.
+
+```bash
+npm install
+cp .env.example .env   # fill in keys — see comments there
+npm run db:migrate
+npm run dev
+```
+
+Dev server: [http://localhost:3002](http://localhost:3002)
+
+## Usage
+
+1. **Update data** — sync Kaggle BTC history into Postgres.
+2. Pick a horizon (**1m · 3m · 6m · 9m · 1yr**) and click **Forecast**.
+3. Open the chart — use **24h** for the last day (1m candles, axis in **HH:MM** UTC, no forecast lines) or **All** for sampled history plus blue/purple forecasts; Binance tail sync runs automatically and the latest price updates every 15s. If spot is **below your Jun 2 buy**, the toolbar **bell** shows an amber warning dot and a **Sonner** toast fires (again at most every **6 hours** while still below; click the bell anytime).
+
+### Optional: auto sell / buy (Binance spot)
+
+Binance has no single “convert when price hits X” webhook. This app can **poll** on each `POST /api/binance/sync` (~15s) and place a **market** order on `BTCUSDT` when your bet rules match:
+
+| Flag | When true |
+|------|-----------|
+| `FEATURE_FLAG_AUTO_SELL` | Spot **below** your Jun 2 entry (USD, from `config/fx.json`) → market **sell** up to your bet size in BTC → USDT |
+| `FEATURE_FLAG_AUTO_BUY` | Spot **above** entry → market **buy** with USDT (up to bet notional) |
+
+Both default to **`false`** in `.env.example`. Turn on only after API keys have **Spot trading** enabled and you accept real orders. Each side runs **once** per lock row in Postgres (`binance_auto_trade_lock`; run `npm run db:migrate`). Status: `GET /api/binance/auto-trade`.
+
+## Scripts
+
+| Command | Purpose |
+|--------|---------|
+| `npm run dev` | Dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run production build |
+| `npm run lint` | ESLint |
+| `npm run db:migrate` | Postgres migrations |

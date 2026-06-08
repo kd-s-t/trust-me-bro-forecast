@@ -1,6 +1,7 @@
 "use client";
 
 import { AssistantBro } from "@/components/AssistantBro";
+import { BinanceBalance } from "@/components/BinanceBalance";
 import { BrandLogo } from "@/components/BrandLogo";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ForecastButton } from "@/components/ForecastButton";
@@ -28,6 +29,7 @@ export function AppSidebar() {
         <BrandLogo width={220} className="mx-auto max-w-full" />
       </motion.div>
       <ProfileHeader />
+      <BinanceBalance />
       <MotionControlsSection className="shrink-0 space-y-2 border-b border-border p-3">
         <motion.p
           className="text-xs font-medium uppercase tracking-wide text-muted-foreground"

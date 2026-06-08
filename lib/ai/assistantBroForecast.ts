@@ -1,3 +1,5 @@
+import { withForecastAnchor } from "@/lib/chart/anchorForecast";
+import { userFacingMessage } from "@/lib/errors/userFacingMessage";
 import type { ForecastHorizon } from "@/lib/forecast/horizons";
 import { weeklyTimestamps } from "@/lib/forecast/horizons";
 import type { PricePoint } from "@/lib/history";
@@ -108,7 +110,9 @@ export async function generateAssistantBroForecast(input: {
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(
-      `OpenAI error (${String(res.status)}): ${errText.slice(0, 300)}`,
+      userFacingMessage(
+        `OpenAI error (${String(res.status)}): ${errText.slice(0, 300)}`,
+      ),
     );
   }
 
@@ -152,11 +156,16 @@ export async function generateAssistantBroForecast(input: {
       : "Tailored outlook from headlines and your instructions.";
 
   const analysis = `${ASSISTANT_BRO_ANALYSIS_PREFIX}${reasoning}`;
-  const points = interpolateToWeekly(
+  const interpolated = interpolateToWeekly(
     rawPoints,
     schedule,
     input.startMs,
     input.startPrice,
+  );
+  const points = withForecastAnchor(
+    input.startMs,
+    input.startPrice,
+    interpolated,
   );
   if (points.length > 0) {
     points[points.length - 1]!.note = analysis.slice(0, 200);

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session-token";
+import { sessionCookieOptions } from "@/lib/auth/session";
+import {
+  SESSION_COOKIE,
+  createSessionToken,
+  parseVerifiedSession,
+  shouldRenewSession,
+} from "@/lib/auth/session-token";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
@@ -23,15 +29,15 @@ export async function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  let user: string | null = null;
+  let session: { username: string; expMs: number } | null = null;
   try {
-    user = await verifySessionToken(token);
+    session = await parseVerifiedSession(token);
   } catch (e) {
     console.error("[middleware] session verify failed", e);
-    user = null;
+    session = null;
   }
 
-  if (user === null) {
+  if (session === null) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -46,7 +52,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  if (
+    token !== undefined &&
+    token !== "" &&
+    shouldRenewSession(session.expMs)
+  ) {
+    const renewed = await createSessionToken(session.username);
+    response.cookies.set(SESSION_COOKIE, renewed, sessionCookieOptions());
+  }
+  return response;
 }
 
 export const config = {

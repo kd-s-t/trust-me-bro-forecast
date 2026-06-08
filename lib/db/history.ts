@@ -1,6 +1,33 @@
+import { BET_PURCHASE_UTC_DAY } from "@/lib/chartBetMarker";
 import type { PricePoint } from "../history";
 import { chartHistoryCap } from "../chartSample";
 import { getSql } from "./sql";
+
+const DAY_MS = 86_400_000;
+
+function utcDayFromTimeMs(timeMs: number): string {
+  return new Date(timeMs).toISOString().slice(0, 10);
+}
+
+function parseUtcDayStartMs(day: string): number {
+  const [y, mo, d] = day.split("-").map(Number);
+  return Date.UTC(y!, mo! - 1, d!);
+}
+
+function mergeBetDayIfPresent(
+  points: PricePoint[],
+  betDay: PricePoint,
+): PricePoint[] {
+  const betUtcDay = utcDayFromTimeMs(betDay.timeMs);
+  for (let i = 0; i < points.length; i++) {
+    if (utcDayFromTimeMs(points[i]!.timeMs) === betUtcDay) {
+      return points;
+    }
+  }
+  const merged = [...points, betDay];
+  merged.sort((a, b) => a.timeMs - b.timeMs);
+  return merged;
+}
 
 export const DEFAULT_HISTORY_SYMBOL = "BTC";
 
@@ -81,7 +108,39 @@ export async function loadHistoryFromDb(
       amount: r.amount,
     });
   }
+
+  const betDay = await loadUtcDayFromDb(sql, symbol, BET_PURCHASE_UTC_DAY);
+  if (betDay !== null) {
+    return mergeBetDayIfPresent(points, betDay);
+  }
   return points;
+}
+
+async function loadUtcDayFromDb(
+  sql: ReturnType<typeof getSql>,
+  symbol: string,
+  utcDay: string,
+): Promise<PricePoint | null> {
+  const startMs = parseUtcDayStartMs(utcDay);
+  const endMs = startMs + DAY_MS;
+  const rows = (await sql`
+    SELECT time_ms, price, amount
+    FROM history
+    WHERE symbol = ${symbol}
+      AND time_ms >= ${startMs}
+      AND time_ms < ${endMs}
+    ORDER BY time_ms ASC
+    LIMIT 1
+  `) as PriceRow[];
+  const r = rows[0];
+  if (r === undefined) {
+    return null;
+  }
+  const timeMs = Number(r.time_ms);
+  if (!Number.isFinite(timeMs)) {
+    return null;
+  }
+  return { timeMs, price: r.price, amount: r.amount };
 }
 
 export async function getLatestSpot(
@@ -102,6 +161,70 @@ export async function getLatestSpot(
     );
   }
   return { timeMs: Number(r.time_ms), price: r.price };
+}
+
+const UPSERT_BATCH = 200;
+
+/** All points in a time window (no sampling — for 24h intraday view). */
+export async function loadHistoryRangeFromDb(
+  symbol: string,
+  startMs: number,
+  endMs: number,
+): Promise<PricePoint[]> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT time_ms, price, amount
+    FROM history
+    WHERE symbol = ${symbol}
+      AND time_ms >= ${startMs}
+      AND time_ms <= ${endMs}
+    ORDER BY time_ms ASC
+  `) as PriceRow[];
+
+  const points: PricePoint[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    const timeMs = Number(r.time_ms);
+    if (!Number.isFinite(timeMs)) {
+      continue;
+    }
+    points.push({
+      timeMs,
+      price: r.price,
+      amount: r.amount,
+    });
+  }
+  return points;
+}
+
+/** Upsert Binance (or other) tail rows; does not delete existing history. */
+export async function upsertHistoryPoints(
+  symbol: string,
+  points: PricePoint[],
+): Promise<number> {
+  if (points.length === 0) {
+    return 0;
+  }
+  const sql = getSql();
+  let upserted = 0;
+  for (let i = 0; i < points.length; i += UPSERT_BATCH) {
+    const chunk = points.slice(i, i + UPSERT_BATCH);
+    await sql`
+      INSERT INTO history ${sql(
+        chunk.map((p) => ({
+          symbol,
+          time_ms: p.timeMs,
+          price: p.price,
+          amount: p.amount,
+        })),
+      )}
+      ON CONFLICT (symbol, time_ms) DO UPDATE SET
+        price = EXCLUDED.price,
+        amount = EXCLUDED.amount
+    `;
+    upserted += chunk.length;
+  }
+  return upserted;
 }
 
 /** Exact count — slow on large tables. */

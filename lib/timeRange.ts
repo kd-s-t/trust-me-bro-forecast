@@ -55,6 +55,15 @@ export function defaultVisibleWindowMs(): UtcDayRangeMs {
   };
 }
 
+/** Last 24 hours for intraday chart zoom. */
+export function last24HoursWindowMs(): UtcDayRangeMs {
+  const endMsInclusive = Date.now();
+  return {
+    startMsInclusive: endMsInclusive - 24 * 60 * 60 * 1000,
+    endMsInclusive,
+  };
+}
+
 function parseUtcDayStartMs(day: string): number {
   const [y, mo, d] = execYmd(day);
   return Date.UTC(y, mo - 1, d);

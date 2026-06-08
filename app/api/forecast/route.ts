@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth/requireAuth";
 import { loadForecastPayload } from "@/lib/chart/loadForecastPayload";
 import { deleteForecastRun } from "@/lib/db/forecast";
 import { DEFAULT_HISTORY_SYMBOL } from "@/lib/db/history";
+import { userFacingMessage } from "@/lib/errors/userFacingMessage";
 import { isForecastHorizon } from "@/lib/forecast/horizons";
 
 export const runtime = "nodejs";
@@ -22,7 +23,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     const forecast = await loadForecastPayload(auth.user, runId);
     return NextResponse.json({ forecast });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = userFacingMessage(
+      e instanceof Error ? e.message : String(e),
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -46,7 +49,9 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = userFacingMessage(
+      e instanceof Error ? e.message : String(e),
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -96,7 +101,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       method,
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = userFacingMessage(
+      e instanceof Error ? e.message : String(e),
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

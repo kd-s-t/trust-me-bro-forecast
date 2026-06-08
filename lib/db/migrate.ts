@@ -51,6 +51,9 @@ export async function runMigrations(): Promise<void> {
   await sql`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT
   `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS sync_jobs (
@@ -127,6 +130,7 @@ export async function runMigrations(): Promise<void> {
   `;
 
   await migrateUserScopedSchema(sql);
+  await migrateBinanceAutoTradeLock(sql);
 
   await seedUsers();
   for (const username of seedUsernames()) {
@@ -139,6 +143,43 @@ export async function runMigrations(): Promise<void> {
     ADD CONSTRAINT forecast_runs_username_fkey
     FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   `.catch(() => undefined);
+}
+
+type PkColumnRow = { column_name: string };
+
+async function primaryKeyColumns(
+  sql: ReturnType<typeof getSql>,
+  tableName: string,
+): Promise<string[]> {
+  const rows = (await sql`
+    SELECT kcu.column_name
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+      AND tc.table_name = kcu.table_name
+    WHERE tc.constraint_type = 'PRIMARY KEY'
+      AND tc.table_schema = 'public'
+      AND tc.table_name = ${tableName}
+    ORDER BY kcu.ordinal_position
+  `) as PkColumnRow[];
+  return rows.map((r) => r.column_name);
+}
+
+async function predictionPkAlreadyUserScoped(
+  sql: ReturnType<typeof getSql>,
+): Promise<boolean> {
+  const cat = await primaryKeyColumns(sql, "prediction_categories");
+  const items = await primaryKeyColumns(sql, "prediction_items");
+  return (
+    cat.length === 2 &&
+    cat[0] === "username" &&
+    cat[1] === "id" &&
+    items.length === 3 &&
+    items[0] === "username" &&
+    items[1] === "category_id" &&
+    items[2] === "id"
+  );
 }
 
 async function migrateUserScopedSchema(
@@ -179,32 +220,39 @@ async function migrateUserScopedSchema(
     WHERE username IS NULL
   `;
 
-  await sql`
-    ALTER TABLE prediction_items
-    DROP CONSTRAINT IF EXISTS prediction_items_category_id_fkey
-  `;
-  await sql`
-    ALTER TABLE prediction_categories
-    DROP CONSTRAINT IF EXISTS prediction_categories_pkey
-  `;
-  await sql`
-    ALTER TABLE prediction_items
-    DROP CONSTRAINT IF EXISTS prediction_items_pkey
-  `;
-  await sql`
-    ALTER TABLE prediction_categories
-    ADD PRIMARY KEY (username, id)
-  `.catch(() => undefined);
-  await sql`
-    ALTER TABLE prediction_items
-    ADD PRIMARY KEY (username, category_id, id)
-  `.catch(() => undefined);
-  await sql`
-    ALTER TABLE prediction_items
-    ADD CONSTRAINT prediction_items_category_fkey
-    FOREIGN KEY (username, category_id)
-    REFERENCES prediction_categories(username, id) ON DELETE CASCADE
-  `.catch(() => undefined);
+  const pkDone = await predictionPkAlreadyUserScoped(sql);
+  if (!pkDone) {
+    await sql`
+      ALTER TABLE prediction_items
+      DROP CONSTRAINT IF EXISTS prediction_items_category_fkey
+    `;
+    await sql`
+      ALTER TABLE prediction_items
+      DROP CONSTRAINT IF EXISTS prediction_items_category_id_fkey
+    `;
+    await sql`
+      ALTER TABLE prediction_items
+      DROP CONSTRAINT IF EXISTS prediction_items_pkey
+    `;
+    await sql`
+      ALTER TABLE prediction_categories
+      DROP CONSTRAINT IF EXISTS prediction_categories_pkey
+    `;
+    await sql`
+      ALTER TABLE prediction_categories
+      ADD PRIMARY KEY (username, id)
+    `.catch(() => undefined);
+    await sql`
+      ALTER TABLE prediction_items
+      ADD PRIMARY KEY (username, category_id, id)
+    `.catch(() => undefined);
+    await sql`
+      ALTER TABLE prediction_items
+      ADD CONSTRAINT prediction_items_category_fkey
+      FOREIGN KEY (username, category_id)
+      REFERENCES prediction_categories(username, id) ON DELETE CASCADE
+    `.catch(() => undefined);
+  }
 
   await sql`
     DROP INDEX IF EXISTS forecast_runs_symbol_created_idx
@@ -212,5 +260,20 @@ async function migrateUserScopedSchema(
   await sql`
     CREATE INDEX IF NOT EXISTS forecast_runs_user_symbol_created_idx
       ON forecast_runs (username, symbol, created_at DESC)
+  `;
+}
+
+async function migrateBinanceAutoTradeLock(
+  sql: ReturnType<typeof getSql>,
+): Promise<void> {
+  await sql`
+    CREATE TABLE IF NOT EXISTS binance_auto_trade_lock (
+      lock_key TEXT PRIMARY KEY,
+      order_id TEXT,
+      side TEXT NOT NULL,
+      price_usd DOUBLE PRECISION NOT NULL,
+      quantity DOUBLE PRECISION,
+      executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `;
 }

@@ -7,27 +7,44 @@ import {
   CrosshairMode,
   LineSeries,
   createChart,
+  createSeriesMarkers,
   LineStyle,
   type BusinessDay,
   type CandlestickData,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type LineData,
   type MouseEventParams,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { motion } from "framer-motion";
+import {
+  BET_PURCHASE_DETAIL,
+  BET_PURCHASE_SHORT,
+  betPurchaseMarker,
+  findBetCandle,
+} from "@/lib/chartBetMarker";
 import type { ChartRow } from "@/lib/chartRows";
 import { candlesFromClosePrices } from "@/lib/candleFromPrices";
-import { defaultVisibleWindowMs } from "@/lib/timeRange";
+import { formatChartAxisTime } from "@/lib/chart/formatChartTime";
+import type { ChartHistoryView } from "@/lib/chart/historyView";
+import {
+  defaultVisibleWindowMs,
+  last24HoursWindowMs,
+} from "@/lib/timeRange";
 
 export type { ChartRow };
 
 type Props = {
   rows: ChartRow[];
+  historyView?: ChartHistoryView;
   forecastInsightLabel?: string | null;
 };
+
+const ROW_MATCH_MS_DEFAULT = 86_400_000;
+const ROW_MATCH_MS_INTRADAY = 120_000;
 
 /** TradingView lightweight-charts demo palette */
 const CANDLE_UP = "#26a69a";
@@ -69,7 +86,11 @@ function formatUsd(price: number): string {
   return nfUsd.format(price);
 }
 
-function rowAtTimeMs(rows: ChartRow[], timeMs: number): ChartRow | undefined {
+function rowAtTimeMs(
+  rows: ChartRow[],
+  timeMs: number,
+  maxDeltaMs: number,
+): ChartRow | undefined {
   let best: ChartRow | undefined;
   let bestDelta = Infinity;
   for (let i = 0; i < rows.length; i++) {
@@ -80,7 +101,7 @@ function rowAtTimeMs(rows: ChartRow[], timeMs: number): ChartRow | undefined {
       best = r;
     }
   }
-  if (best === undefined || bestDelta > 86_400_000) {
+  if (best === undefined || bestDelta > maxDeltaMs) {
     return undefined;
   }
   return best;
@@ -92,6 +113,7 @@ function tooltipFromCrosshair(
   forecast: ISeriesApi<"Line", Time>,
   aiForecast: ISeriesApi<"Line", Time> | null,
   rows: ChartRow[],
+  maxDeltaMs: number,
 ): ChartTooltipState | null {
   if (param.point === undefined || param.time === undefined) {
     return null;
@@ -102,7 +124,7 @@ function tooltipFromCrosshair(
   }
 
   const timeMs = timeToMs(param.time);
-  const row = rowAtTimeMs(rows, timeMs);
+  const row = rowAtTimeMs(rows, timeMs, maxDeltaMs);
   const candle = param.seriesData.get(history) as CandlestickData<Time> | undefined;
   const forecastPoint = param.seriesData.get(forecast) as
     | LineData<Time>
@@ -176,11 +198,87 @@ function sortLineAsc(data: LineData<Time>[]): LineData<Time>[] {
   return [...data].sort((a, b) => timeToMs(a.time) - timeToMs(b.time));
 }
 
-function applyDefaultVisibleRange(chart: IChartApi): void {
-  const win = defaultVisibleWindowMs();
+/** lightweight-charts requires strictly ascending times (no duplicate seconds). */
+function dedupeLineAsc(data: LineData<Time>[]): LineData<Time>[] {
+  const sorted = sortLineAsc(data);
+  const out: LineData<Time>[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const pt = sorted[i]!;
+    const t = timeToMs(pt.time);
+    const prev = out[out.length - 1];
+    if (prev !== undefined && timeToMs(prev.time) === t) {
+      out[out.length - 1] = pt;
+    } else if (prev === undefined || timeToMs(prev.time) < t) {
+      out.push(pt);
+    }
+  }
+  return out;
+}
+
+type VisibleTimeRange = {
+  from: Time;
+  to: Time;
+};
+
+type VisibleLogicalRange = {
+  from: number;
+  to: number;
+};
+
+function applyVisibleRange(chart: IChartApi, historyView: ChartHistoryView): void {
+  const win =
+    historyView === "24h" ? last24HoursWindowMs() : defaultVisibleWindowMs();
   chart.timeScale().setVisibleRange({
     from: msToUtc(win.startMsInclusive),
     to: msToUtc(win.endMsInclusive),
+  });
+}
+
+/** setData resets the time scale asynchronously — restore after layout. */
+function scheduleRestoreViewport(
+  chart: IChartApi,
+  timeRange: VisibleTimeRange | null,
+  logicalRange: VisibleLogicalRange | null,
+): void {
+  if (timeRange === null && logicalRange === null) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (logicalRange !== null) {
+        try {
+          chart.timeScale().setVisibleLogicalRange(logicalRange);
+          return;
+        } catch {
+          /* fall back to time range */
+        }
+      }
+      if (timeRange !== null) {
+        try {
+          chart.timeScale().setVisibleRange(timeRange);
+        } catch {
+          /* range no longer valid for new data */
+        }
+      }
+    });
+  });
+}
+
+function applyTimeScaleOptions(
+  chart: IChartApi,
+  historyView: ChartHistoryView,
+): void {
+  const intraday = historyView === "24h";
+  chart.applyOptions({
+    timeScale: {
+      timeVisible: true,
+      secondsVisible: false,
+    },
+    localization: {
+      locale: "en-US",
+      priceFormatter: (price: number) => `$${nfCompact.format(price)}`,
+      timeFormatter: (t: Time) => formatChartAxisTime(timeToMs(t), intraday),
+    },
   });
 }
 
@@ -207,26 +305,112 @@ function seriesDataFromRows(rows: ChartRow[]): {
   }
 
   const bridge = closePoints[closePoints.length - 1];
-  if (bridge !== undefined) {
-    if (forecast.length > 0 && timeToMs(forecast[0]!.time) > bridge.timeMs) {
-      forecast.unshift({
-        time: msToUtc(bridge.timeMs),
-        value: bridge.close,
-      });
+  const bridgeSec =
+    bridge !== undefined ? Math.floor(bridge.timeMs / 1000) : null;
+  if (bridge !== undefined && bridgeSec !== null) {
+    if (forecast.length > 0) {
+      const t0 = timeToMs(forecast[0]!.time);
+      if (t0 > bridgeSec) {
+        forecast.unshift({
+          time: msToUtc(bridge.timeMs),
+          value: bridge.close,
+        });
+      } else if (t0 === bridgeSec) {
+        forecast[0] = { time: forecast[0]!.time, value: bridge.close };
+      }
     }
-    if (aiForecast.length > 0 && timeToMs(aiForecast[0]!.time) > bridge.timeMs) {
-      aiForecast.unshift({
-        time: msToUtc(bridge.timeMs),
-        value: bridge.close,
-      });
+    if (aiForecast.length > 0) {
+      const t0 = timeToMs(aiForecast[0]!.time);
+      if (t0 > bridgeSec) {
+        aiForecast.unshift({
+          time: msToUtc(bridge.timeMs),
+          value: bridge.close,
+        });
+      } else if (t0 === bridgeSec) {
+        aiForecast[0] = { time: aiForecast[0]!.time, value: bridge.close };
+      }
     }
   }
 
   return {
     candles: candlesFromClosePrices(closePoints),
-    forecast: sortLineAsc(forecast),
-    aiForecast: sortLineAsc(aiForecast),
+    forecast: dedupeLineAsc(forecast),
+    aiForecast: dedupeLineAsc(aiForecast),
   };
+}
+
+type BetAnchor = {
+  markerTime: Time;
+  price: number;
+};
+
+function betAnchorFromCandles(
+  candles: CandlestickData<Time>[],
+): BetAnchor | null {
+  const candle = findBetCandle(candles, timeToMs);
+  if (candle === undefined) {
+    return null;
+  }
+  return { markerTime: candle.time, price: candle.close };
+}
+
+function BetPurchaseCallout({
+  chart,
+  history,
+  anchor,
+  chartReady,
+}: {
+  chart: IChartApi | null;
+  history: ISeriesApi<"Candlestick", Time> | null;
+  anchor: BetAnchor | null;
+  chartReady: number;
+}) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (chart === null || history === null || anchor === null) {
+      setPos(null);
+      return;
+    }
+
+    const update = () => {
+      const x = chart.timeScale().timeToCoordinate(anchor.markerTime);
+      const y = history.priceToCoordinate(anchor.price);
+      if (x === null || y === null) {
+        setPos(null);
+        return;
+      }
+      setPos({ left: x, top: y });
+    };
+
+    update();
+    chart.timeScale().subscribeVisibleTimeRangeChange(update);
+    const ro = new ResizeObserver(update);
+    const wrap = chart.chartElement().parentElement;
+    if (wrap !== null) {
+      ro.observe(wrap);
+    }
+
+    return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(update);
+      ro.disconnect();
+    };
+  }, [chart, history, anchor, chartReady]);
+
+  if (pos === null || anchor === null) {
+    return null;
+  }
+
+  return (
+    <div
+      className="pointer-events-none absolute z-10 max-w-[14rem] -translate-x-1/2 -translate-y-full rounded-md border border-amber-500/40 bg-amber-50/95 px-2 py-1.5 text-[10px] leading-snug text-amber-950 shadow-sm backdrop-blur-sm dark:bg-amber-950/90 dark:text-amber-50"
+      style={{ left: pos.left, top: pos.top - 28 }}
+      title={BET_PURCHASE_DETAIL}
+    >
+      <p className="font-semibold">{BET_PURCHASE_SHORT}</p>
+      <p className="mt-0.5 text-[9px] opacity-90">{BET_PURCHASE_DETAIL}</p>
+    </div>
+  );
 }
 
 function ChartTooltip({ tip }: { tip: ChartTooltipState }) {
@@ -299,17 +483,46 @@ function ChartTooltip({ tip }: { tip: ChartTooltipState }) {
 
 export function BtcChart({
   rows,
+  historyView = "default",
   forecastInsightLabel = null,
 }: Props) {
+  const intraday = historyView === "24h";
+  const rowMatchMs = intraday ? ROW_MATCH_MS_INTRADAY : ROW_MATCH_MS_DEFAULT;
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const historyRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null);
   const forecastRef = useRef<ISeriesApi<"Line", Time> | null>(null);
   const aiForecastRef = useRef<ISeriesApi<"Line", Time> | null>(null);
+  const betMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const historyViewRef = useRef(historyView);
+  historyViewRef.current = historyView;
+  const lastVisibleRangeViewRef = useRef<ChartHistoryView | null>(null);
+  const savedVisibleRangeRef = useRef<VisibleTimeRange | null>(null);
+  const savedLogicalRangeRef = useRef<VisibleLogicalRange | null>(null);
+  const rowMatchMsRef = useRef(rowMatchMs);
+  rowMatchMsRef.current = rowMatchMs;
   const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
+  const [betAnchor, setBetAnchor] = useState<BetAnchor | null>(null);
+  const [chartReady, setChartReady] = useState(0);
+
+  const applyBetMarker = (
+    history: ISeriesApi<"Candlestick", Time>,
+    candles: CandlestickData<Time>[],
+  ) => {
+    const anchor = betAnchorFromCandles(candles);
+    setBetAnchor(anchor);
+    const markerTime = anchor?.markerTime;
+    const markers =
+      markerTime === undefined ? [] : [betPurchaseMarker(markerTime)];
+    if (betMarkersRef.current === null) {
+      betMarkersRef.current = createSeriesMarkers(history, markers);
+    } else {
+      betMarkersRef.current.setMarkers(markers);
+    }
+  };
 
   useEffect(() => {
     const el = containerRef.current;
@@ -343,7 +556,7 @@ export function BtcChart({
         locale: "en-US",
         priceFormatter: (price: number) => `$${nfCompact.format(price)}`,
         timeFormatter: (t: Time) =>
-          new Date(timeToMs(t)).toISOString().slice(0, 10),
+          formatChartAxisTime(timeToMs(t), historyViewRef.current === "24h"),
       },
     });
 
@@ -387,13 +600,17 @@ export function BtcChart({
       } = seriesDataFromRows(dataRows);
       if (candles.length > 0) {
         history.setData(candles);
+        applyBetMarker(history, candles);
+      } else {
+        setBetAnchor(null);
+        betMarkersRef.current?.setMarkers([]);
       }
       forecast.setData(forecastData);
       aiForecast.setData(aiData);
-      applyDefaultVisibleRange(chart);
     };
 
     applyRows(rowsRef.current);
+    setChartReady((n) => n + 1);
 
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
       const wrap = wrapperRef.current;
@@ -419,6 +636,7 @@ export function BtcChart({
         forecast,
         aiForecast,
         rowsRef.current,
+        rowMatchMsRef.current,
       );
       if (next === null) {
         setTooltip(null);
@@ -430,13 +648,31 @@ export function BtcChart({
 
     chart.subscribeCrosshairMove(onCrosshairMove);
 
+    const onVisibleRangeChange = (range: VisibleTimeRange | null): void => {
+      if (range !== null) {
+        savedVisibleRangeRef.current = { from: range.from, to: range.to };
+      }
+    };
+    const onLogicalRangeChange = (range: VisibleLogicalRange | null): void => {
+      if (range !== null) {
+        savedLogicalRangeRef.current = { from: range.from, to: range.to };
+      }
+    };
+    chart.timeScale().subscribeVisibleTimeRangeChange(onVisibleRangeChange);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
+
     return () => {
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
       chart.unsubscribeCrosshairMove(onCrosshairMove);
+      betMarkersRef.current?.detach();
+      betMarkersRef.current = null;
       chart.remove();
       chartRef.current = null;
       historyRef.current = null;
       forecastRef.current = null;
       aiForecastRef.current = null;
+      setBetAnchor(null);
     };
   }, []);
 
@@ -456,6 +692,16 @@ export function BtcChart({
     if (rows.length === 0) {
       return;
     }
+
+    const viewChanged = lastVisibleRangeViewRef.current !== historyView;
+    const timeRangeToRestore = viewChanged
+      ? null
+      : (chart.timeScale().getVisibleRange() ?? savedVisibleRangeRef.current);
+    const logicalRangeToRestore = viewChanged
+      ? null
+      : (chart.timeScale().getVisibleLogicalRange() ??
+        savedLogicalRangeRef.current);
+
     const {
       candles,
       forecast: forecastData,
@@ -463,11 +709,29 @@ export function BtcChart({
     } = seriesDataFromRows(rows);
     if (candles.length > 0) {
       history.setData(candles);
+      applyBetMarker(history, candles);
+    } else {
+      setBetAnchor(null);
+      betMarkersRef.current?.setMarkers([]);
     }
     forecast.setData(forecastData);
     aiForecast.setData(aiData);
-    applyDefaultVisibleRange(chart);
-  }, [rows]);
+    applyTimeScaleOptions(chart, historyView);
+
+    if (viewChanged) {
+      applyVisibleRange(chart, historyView);
+      lastVisibleRangeViewRef.current = historyView;
+      const win =
+        historyView === "24h" ? last24HoursWindowMs() : defaultVisibleWindowMs();
+      savedVisibleRangeRef.current = {
+        from: msToUtc(win.startMsInclusive),
+        to: msToUtc(win.endMsInclusive),
+      };
+      savedLogicalRangeRef.current = null;
+    } else {
+      scheduleRestoreViewport(chart, timeRangeToRestore, logicalRangeToRestore);
+    }
+  }, [rows, historyView]);
 
   return (
     <motion.div
@@ -481,6 +745,12 @@ export function BtcChart({
         className="relative min-h-0 min-w-0 flex-1 w-full"
       >
         <div ref={containerRef} className="absolute inset-0" />
+        <BetPurchaseCallout
+          chart={chartRef.current}
+          history={historyRef.current}
+          anchor={betAnchor}
+          chartReady={chartReady}
+        />
         {forecastInsightLabel !== null ? (
           <div
             className="pointer-events-none absolute right-3 top-3 z-10 max-w-[min(100%-1.5rem,22rem)] truncate rounded-md bg-violet-500/15 px-2 py-1 text-[10px] font-medium text-violet-950 ring-1 ring-inset ring-violet-500/30 backdrop-blur-sm dark:text-violet-100"

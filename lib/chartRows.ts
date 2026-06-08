@@ -1,3 +1,6 @@
+import { formatChartTimeLabel } from "@/lib/chart/formatChartTime";
+import type { ChartHistoryView } from "@/lib/chart/historyView";
+import { forecastTailAfterObserved } from "@/lib/chart/anchorForecast";
 import type { PricePoint } from "./history";
 import type { UtcDayRangeMs } from "./timeRange";
 
@@ -17,14 +20,22 @@ export function buildChartRows(
   forecast: PricePoint[],
   aiSeries?: PricePoint[],
   aiViewRange?: UtcDayRangeMs,
+  historyView: ChartHistoryView = "default",
 ): ChartRow[] {
+  const intraday = historyView === "24h";
+  const showForecasts = !intraday;
+  const labelAt = (timeMs: number): string =>
+    formatChartTimeLabel(timeMs, intraday);
   const rows: ChartRow[] = [];
   if (observed.length === 0) {
+    if (!showForecasts) {
+      return rows;
+    }
     for (let i = 0; i < forecast.length; i++) {
       const p = forecast[i]!;
       rows.push({
         timeMs: p.timeMs,
-        label: new Date(p.timeMs).toISOString().slice(0, 10),
+        label: labelAt(p.timeMs),
         observed: null,
         forecast: p.price,
         forecastNote: p.note ?? null,
@@ -33,14 +44,14 @@ export function buildChartRows(
         btcAmount: p.amount,
       });
     }
-    appendAiTail(rows, aiSeries, aiViewRange);
+    appendAiTail(rows, aiSeries, aiViewRange, intraday);
     return rows;
   }
   for (let i = 0; i < observed.length - 1; i++) {
     const p = observed[i]!;
     rows.push({
       timeMs: p.timeMs,
-      label: new Date(p.timeMs).toISOString().slice(0, 10),
+      label: labelAt(p.timeMs),
       observed: p.price,
       forecast: null,
       forecastNote: null,
@@ -50,22 +61,25 @@ export function buildChartRows(
     });
   }
   const lastObs = observed[observed.length - 1]!;
+  const forecastTail = showForecasts
+    ? forecastTailAfterObserved(lastObs, forecast)
+    : [];
   rows.push({
     timeMs: lastObs.timeMs,
-    label: new Date(lastObs.timeMs).toISOString().slice(0, 10),
+    label: labelAt(lastObs.timeMs),
     observed: lastObs.price,
-    forecast: null,
+    forecast: forecastTail.length > 0 ? lastObs.price : null,
     forecastNote: null,
     aiForecast: null,
     aiForecastNote: null,
     btcAmount: lastObs.amount,
   });
-  if (forecast.length > 0) {
-    for (let i = 0; i < forecast.length; i++) {
-      const p = forecast[i]!;
+  if (showForecasts) {
+    for (let i = 0; i < forecastTail.length; i++) {
+      const p = forecastTail[i]!;
       rows.push({
         timeMs: p.timeMs,
-        label: new Date(p.timeMs).toISOString().slice(0, 10),
+        label: labelAt(p.timeMs),
         observed: null,
         forecast: p.price,
         forecastNote: p.note ?? null,
@@ -74,8 +88,8 @@ export function buildChartRows(
         btcAmount: p.amount,
       });
     }
+    appendAiTail(rows, aiSeries, aiViewRange, intraday);
   }
-  appendAiTail(rows, aiSeries, aiViewRange);
   return rows;
 }
 
@@ -83,6 +97,7 @@ function appendAiTail(
   rows: ChartRow[],
   aiSeries: PricePoint[] | undefined,
   aiViewRange: UtcDayRangeMs | undefined,
+  intraday: boolean,
 ): void {
   if (aiSeries === undefined || aiSeries.length === 0) {
     return;
@@ -105,7 +120,7 @@ function appendAiTail(
     const p = tail[i]!;
     rows.push({
       timeMs: p.timeMs,
-      label: new Date(p.timeMs).toISOString().slice(0, 10),
+      label: formatChartTimeLabel(p.timeMs, intraday),
       observed: null,
       forecast: null,
       forecastNote: null,

@@ -60,7 +60,7 @@ export function ProfileHeader({ className }: Props) {
   return (
     <div
       className={cn(
-        "flex items-center justify-center gap-2.5 border-b border-border px-3 py-3",
+        "flex items-center gap-2.5 border-b border-border px-3 py-3",
         className,
       )}
     >
@@ -71,9 +71,19 @@ export function ProfileHeader({ className }: Props) {
         height={40}
         className="size-10 shrink-0 rounded-full border border-border bg-muted object-cover"
       />
-      <p className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground">
-        {profile.displayName}
-      </p>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold leading-tight text-foreground">
+          {profile.displayName}
+        </p>
+        <p className="truncate text-[11px] text-muted-foreground">
+          Login @{profile.username}
+        </p>
+        {profile.email !== null ? (
+          <p className="truncate text-[11px] text-muted-foreground">
+            {profile.email}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

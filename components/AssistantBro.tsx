@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { setSelectedForecastRunId } from "@/lib/chart/forecastSelection";
 import { refreshChartData } from "@/lib/chart/refreshChart";
 import { getSelectedForecastHorizon } from "@/lib/forecast/selectedHorizon";
+import { userFacingMessage } from "@/lib/errors/userFacingMessage";
 import { cn } from "@/lib/utils";
 
 export function AssistantBro() {
@@ -74,7 +75,7 @@ export function AssistantBro() {
       refreshChartData();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Forecast failed";
-      setError(msg);
+      setError(userFacingMessage(msg));
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,27 @@
 export const SESSION_COOKIE = "session";
-const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 7;
+
+/** Renew cookie after this much of the session lifetime has elapsed (sliding window). */
+const SESSION_RENEW_AFTER_SEC = 60 * 60 * 24;
+
+function parseSessionMaxAgeSec(): number {
+  const daysRaw = process.env.SESSION_MAX_AGE_DAYS?.trim();
+  if (daysRaw !== undefined && daysRaw !== "") {
+    const days = Number(daysRaw);
+    if (Number.isFinite(days) && days > 0) {
+      return Math.floor(days * 60 * 60 * 24);
+    }
+  }
+  const hoursRaw = process.env.SESSION_MAX_AGE_HOURS?.trim();
+  if (hoursRaw !== undefined && hoursRaw !== "") {
+    const hours = Number(hoursRaw);
+    if (Number.isFinite(hours) && hours > 0) {
+      return Math.floor(hours * 60 * 60);
+    }
+  }
+  return 60 * 60 * 24 * 7;
+}
+
+const SESSION_MAX_AGE_SEC = parseSessionMaxAgeSec();
 
 function authSecret(): string {
   const secret = process.env.AUTH_SECRET?.trim();
@@ -76,9 +98,9 @@ export async function createSessionToken(username: string): Promise<string> {
   return `${toBase64Url(new TextEncoder().encode(payload))}.${signature}`;
 }
 
-export async function verifySessionToken(
+export async function parseVerifiedSession(
   token: string | undefined,
-): Promise<string | null> {
+): Promise<{ username: string; expMs: number } | null> {
   if (token === undefined || token === "") {
     return null;
   }
@@ -102,11 +124,26 @@ export async function verifySessionToken(
     return null;
   }
   const username = payload.slice(0, colon);
-  const exp = Number(payload.slice(colon + 1));
-  if (!Number.isFinite(exp) || Date.now() > exp) {
+  const expMs = Number(payload.slice(colon + 1));
+  if (!Number.isFinite(expMs) || Date.now() > expMs) {
     return null;
   }
-  return username;
+  return { username, expMs };
+}
+
+export async function verifySessionToken(
+  token: string | undefined,
+): Promise<string | null> {
+  const session = await parseVerifiedSession(token);
+  return session?.username ?? null;
+}
+
+/** Extend session on activity once it is older than 24h (default 7-day lifetime). */
+export function shouldRenewSession(expMs: number, nowMs = Date.now()): boolean {
+  const remainingMs = expMs - nowMs;
+  const maxMs = SESSION_MAX_AGE_SEC * 1000;
+  const renewAfterMs = SESSION_RENEW_AFTER_SEC * 1000;
+  return remainingMs > 0 && remainingMs < maxMs - renewAfterMs;
 }
 
 export const sessionMaxAgeSec = SESSION_MAX_AGE_SEC;

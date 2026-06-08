@@ -39,6 +39,24 @@ export async function getSyncState(symbol: string): Promise<SyncState | null> {
   };
 }
 
+/** Extend max_time_ms when Binance (or other) appends newer history rows. */
+export async function bumpSyncStateMaxTime(
+  symbol: string,
+  candidateMs: number,
+): Promise<void> {
+  if (!Number.isFinite(candidateMs)) {
+    return;
+  }
+  const sql = getSql();
+  await sql`
+    UPDATE sync_state
+    SET
+      max_time_ms = GREATEST(COALESCE(max_time_ms, 0), ${candidateMs}),
+      synced_at = NOW()
+    WHERE symbol = ${symbol}
+  `;
+}
+
 export async function upsertSyncState(
   symbol: string,
   patch: {
