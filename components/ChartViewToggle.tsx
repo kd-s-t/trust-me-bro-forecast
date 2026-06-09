@@ -1,6 +1,9 @@
 "use client";
 
-import type { ChartHistoryView } from "@/lib/chart/historyView";
+import {
+  CHART_HISTORY_VIEWS,
+  type ChartHistoryView,
+} from "@/lib/chart/historyView";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -17,36 +20,25 @@ export function ChartViewToggle({ view, onChange, className }: Props) {
         className,
       )}
       role="group"
-      aria-label="Chart time range"
+      aria-label="Chart interval"
     >
-      <button
-        type="button"
-        onClick={() => {
-          onChange("24h");
-        }}
-        className={cn(
-          "rounded px-2 py-1 transition-colors",
-          view === "24h"
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        24h
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          onChange("default");
-        }}
-        className={cn(
-          "rounded px-2 py-1 transition-colors",
-          view === "default"
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        All
-      </button>
+      {CHART_HISTORY_VIEWS.map((interval) => (
+        <button
+          key={interval}
+          type="button"
+          onClick={() => {
+            onChange(interval);
+          }}
+          className={cn(
+            "rounded px-2 py-1 transition-colors",
+            view === interval
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {interval}
+        </button>
+      ))}
     </div>
   );
 }

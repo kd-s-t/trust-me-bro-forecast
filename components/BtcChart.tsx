@@ -15,7 +15,6 @@ import {
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type LineData,
-  type MouseEventParams,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -29,11 +28,12 @@ import {
 import type { ChartRow } from "@/lib/chartRows";
 import { candlesFromClosePrices } from "@/lib/candleFromPrices";
 import { formatChartAxisTime } from "@/lib/chart/formatChartTime";
-import type { ChartHistoryView } from "@/lib/chart/historyView";
 import {
-  defaultVisibleWindowMs,
-  last24HoursWindowMs,
-} from "@/lib/timeRange";
+  type ChartHistoryView,
+  chartViewIsIntraday,
+  chartVisibleWindowMs,
+  DEFAULT_CHART_HISTORY_VIEW,
+} from "@/lib/chart/historyView";
 
 export type { ChartRow };
 
@@ -42,9 +42,6 @@ type Props = {
   historyView?: ChartHistoryView;
   forecastInsightLabel?: string | null;
 };
-
-const ROW_MATCH_MS_DEFAULT = 86_400_000;
-const ROW_MATCH_MS_INTRADAY = 120_000;
 
 /** TradingView lightweight-charts demo palette */
 const CANDLE_UP = "#26a69a";
@@ -56,128 +53,6 @@ const nfCompact = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 2,
 });
-
-const nfUsd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-type ChartTooltipState = {
-  visible: boolean;
-  x: number;
-  y: number;
-  date: string;
-  observed: number | null;
-  forecast: number | null;
-  forecastNote: string | null;
-  aiForecast: number | null;
-  aiForecastNote: string | null;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-};
-
-const TOOLTIP_MARGIN = 12;
-const TOOLTIP_WIDTH_EST = 280;
-const TOOLTIP_HEIGHT_EST = 160;
-
-function formatUsd(price: number): string {
-  return nfUsd.format(price);
-}
-
-function rowAtTimeMs(
-  rows: ChartRow[],
-  timeMs: number,
-  maxDeltaMs: number,
-): ChartRow | undefined {
-  let best: ChartRow | undefined;
-  let bestDelta = Infinity;
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    const delta = Math.abs(r.timeMs - timeMs);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      best = r;
-    }
-  }
-  if (best === undefined || bestDelta > maxDeltaMs) {
-    return undefined;
-  }
-  return best;
-}
-
-function tooltipFromCrosshair(
-  param: MouseEventParams<Time>,
-  history: ISeriesApi<"Candlestick", Time>,
-  forecast: ISeriesApi<"Line", Time>,
-  aiForecast: ISeriesApi<"Line", Time> | null,
-  rows: ChartRow[],
-  maxDeltaMs: number,
-): ChartTooltipState | null {
-  if (param.point === undefined || param.time === undefined) {
-    return null;
-  }
-  const { x, y } = param.point;
-  if (x < 0 || y < 0) {
-    return null;
-  }
-
-  const timeMs = timeToMs(param.time);
-  const row = rowAtTimeMs(rows, timeMs, maxDeltaMs);
-  const candle = param.seriesData.get(history) as CandlestickData<Time> | undefined;
-  const forecastPoint = param.seriesData.get(forecast) as
-    | LineData<Time>
-    | undefined;
-  const aiPoint =
-    aiForecast !== null
-      ? (param.seriesData.get(aiForecast) as LineData<Time> | undefined)
-      : undefined;
-
-  const observed =
-    candle?.close ?? row?.observed ?? null;
-  const forecastPrice =
-    forecastPoint?.value ?? row?.forecast ?? null;
-  const aiPrice = aiPoint?.value ?? row?.aiForecast ?? null;
-
-  if (observed === null && forecastPrice === null && aiPrice === null) {
-    return null;
-  }
-
-  return {
-    visible: true,
-    x,
-    y,
-    date: row?.label ?? new Date(timeMs).toISOString().slice(0, 10),
-    observed,
-    forecast: forecastPrice,
-    forecastNote: row?.forecastNote ?? null,
-    aiForecast: aiPrice,
-    aiForecastNote: row?.aiForecastNote ?? null,
-    open: candle?.open ?? null,
-    high: candle?.high ?? null,
-    low: candle?.low ?? null,
-  };
-}
-
-function placeTooltip(
-  point: { x: number; y: number },
-  containerWidth: number,
-  containerHeight: number,
-): { left: number; top: number } {
-  let left = point.x + TOOLTIP_MARGIN;
-  let top = point.y + TOOLTIP_MARGIN;
-  if (left + TOOLTIP_WIDTH_EST > containerWidth) {
-    left = point.x - TOOLTIP_MARGIN - TOOLTIP_WIDTH_EST;
-  }
-  if (top + TOOLTIP_HEIGHT_EST > containerHeight) {
-    top = point.y - TOOLTIP_MARGIN - TOOLTIP_HEIGHT_EST;
-  }
-  return {
-    left: Math.max(TOOLTIP_MARGIN, left),
-    top: Math.max(TOOLTIP_MARGIN, top),
-  };
-}
 
 function msToUtc(timeMs: number): UTCTimestamp {
   return (Math.floor(timeMs / 1000)) as UTCTimestamp;
@@ -226,8 +101,7 @@ type VisibleLogicalRange = {
 };
 
 function applyVisibleRange(chart: IChartApi, historyView: ChartHistoryView): void {
-  const win =
-    historyView === "24h" ? last24HoursWindowMs() : defaultVisibleWindowMs();
+  const win = chartVisibleWindowMs(historyView);
   chart.timeScale().setVisibleRange({
     from: msToUtc(win.startMsInclusive),
     to: msToUtc(win.endMsInclusive),
@@ -268,7 +142,7 @@ function applyTimeScaleOptions(
   chart: IChartApi,
   historyView: ChartHistoryView,
 ): void {
-  const intraday = historyView === "24h";
+  const intraday = chartViewIsIntraday(historyView);
   chart.applyOptions({
     timeScale: {
       timeVisible: true,
@@ -308,17 +182,6 @@ function seriesDataFromRows(rows: ChartRow[]): {
   const bridgeSec =
     bridge !== undefined ? Math.floor(bridge.timeMs / 1000) : null;
   if (bridge !== undefined && bridgeSec !== null) {
-    if (forecast.length > 0) {
-      const t0 = timeToMs(forecast[0]!.time);
-      if (t0 > bridgeSec) {
-        forecast.unshift({
-          time: msToUtc(bridge.timeMs),
-          value: bridge.close,
-        });
-      } else if (t0 === bridgeSec) {
-        forecast[0] = { time: forecast[0]!.time, value: bridge.close };
-      }
-    }
     if (aiForecast.length > 0) {
       const t0 = timeToMs(aiForecast[0]!.time);
       if (t0 > bridgeSec) {
@@ -413,81 +276,11 @@ function BetPurchaseCallout({
   );
 }
 
-function ChartTooltip({ tip }: { tip: ChartTooltipState }) {
-  return (
-    <motion.div
-      className="pointer-events-none absolute z-10 max-w-[17rem] rounded-lg border border-border bg-card/95 px-3 py-2 text-xs shadow-md backdrop-blur-sm"
-      style={{ left: tip.x, top: tip.y }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.12 }}
-    >
-      <p className="mb-1.5 font-medium text-foreground">{tip.date}</p>
-      {tip.observed !== null ? (
-        <div className="space-y-0.5">
-          <p className="font-semibold tabular-nums text-foreground">
-            {formatUsd(tip.observed)}
-          </p>
-          {tip.open !== null && tip.high !== null && tip.low !== null ? (
-            <p className="text-muted-foreground tabular-nums">
-              O {formatUsd(tip.open)} · H {formatUsd(tip.high)} · L{" "}
-              {formatUsd(tip.low)}
-            </p>
-          ) : null}
-          <p className="text-[11px] text-muted-foreground">History</p>
-        </div>
-      ) : null}
-      {tip.forecast !== null ? (
-        <div
-          className={
-            tip.observed !== null
-              ? "mt-1.5 border-t border-border pt-1.5"
-              : undefined
-          }
-        >
-          <p className="tabular-nums" style={{ color: FORECAST_COLOR }}>
-            <span className="text-[11px] text-muted-foreground">Forecast </span>
-            {formatUsd(tip.forecast)}
-          </p>
-          {tip.forecastNote !== null ? (
-            <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-              {tip.forecastNote}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      {tip.aiForecast !== null ? (
-        <div
-          className={
-            tip.observed !== null || tip.forecast !== null
-              ? "mt-1.5 border-t border-border pt-1.5"
-              : undefined
-          }
-        >
-          <p className="tabular-nums" style={{ color: AI_FORECAST_COLOR }}>
-            <span className="text-[11px] text-muted-foreground">
-              News-adjusted{" "}
-            </span>
-            {formatUsd(tip.aiForecast)}
-          </p>
-          {tip.aiForecastNote !== null ? (
-            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-              {tip.aiForecastNote}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-    </motion.div>
-  );
-}
-
 export function BtcChart({
   rows,
-  historyView = "default",
+  historyView = DEFAULT_CHART_HISTORY_VIEW,
   forecastInsightLabel = null,
 }: Props) {
-  const intraday = historyView === "24h";
-  const rowMatchMs = intraday ? ROW_MATCH_MS_INTRADAY : ROW_MATCH_MS_DEFAULT;
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -502,9 +295,6 @@ export function BtcChart({
   const lastVisibleRangeViewRef = useRef<ChartHistoryView | null>(null);
   const savedVisibleRangeRef = useRef<VisibleTimeRange | null>(null);
   const savedLogicalRangeRef = useRef<VisibleLogicalRange | null>(null);
-  const rowMatchMsRef = useRef(rowMatchMs);
-  rowMatchMsRef.current = rowMatchMs;
-  const [tooltip, setTooltip] = useState<ChartTooltipState | null>(null);
   const [betAnchor, setBetAnchor] = useState<BetAnchor | null>(null);
   const [chartReady, setChartReady] = useState(0);
 
@@ -556,7 +346,10 @@ export function BtcChart({
         locale: "en-US",
         priceFormatter: (price: number) => `$${nfCompact.format(price)}`,
         timeFormatter: (t: Time) =>
-          formatChartAxisTime(timeToMs(t), historyViewRef.current === "24h"),
+          formatChartAxisTime(
+            timeToMs(t),
+            chartViewIsIntraday(historyViewRef.current),
+          ),
       },
     });
 
@@ -612,42 +405,6 @@ export function BtcChart({
     applyRows(rowsRef.current);
     setChartReady((n) => n + 1);
 
-    const onCrosshairMove = (param: MouseEventParams<Time>) => {
-      const wrap = wrapperRef.current;
-      if (wrap === null) {
-        return;
-      }
-      const w = wrap.clientWidth;
-      const h = wrap.clientHeight;
-      if (
-        param.point === undefined ||
-        param.time === undefined ||
-        param.point.x < 0 ||
-        param.point.y < 0 ||
-        param.point.x > w ||
-        param.point.y > h
-      ) {
-        setTooltip(null);
-        return;
-      }
-      const next = tooltipFromCrosshair(
-        param,
-        history,
-        forecast,
-        aiForecast,
-        rowsRef.current,
-        rowMatchMsRef.current,
-      );
-      if (next === null) {
-        setTooltip(null);
-        return;
-      }
-      const { left, top } = placeTooltip(param.point, w, h);
-      setTooltip({ ...next, x: left, y: top });
-    };
-
-    chart.subscribeCrosshairMove(onCrosshairMove);
-
     const onVisibleRangeChange = (range: VisibleTimeRange | null): void => {
       if (range !== null) {
         savedVisibleRangeRef.current = { from: range.from, to: range.to };
@@ -664,7 +421,6 @@ export function BtcChart({
     return () => {
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onVisibleRangeChange);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
-      chart.unsubscribeCrosshairMove(onCrosshairMove);
       betMarkersRef.current?.detach();
       betMarkersRef.current = null;
       chart.remove();
@@ -721,8 +477,7 @@ export function BtcChart({
     if (viewChanged) {
       applyVisibleRange(chart, historyView);
       lastVisibleRangeViewRef.current = historyView;
-      const win =
-        historyView === "24h" ? last24HoursWindowMs() : defaultVisibleWindowMs();
+      const win = chartVisibleWindowMs(historyView);
       savedVisibleRangeRef.current = {
         from: msToUtc(win.startMsInclusive),
         to: msToUtc(win.endMsInclusive),
@@ -759,7 +514,6 @@ export function BtcChart({
             {forecastInsightLabel}
           </div>
         ) : null}
-        {tooltip?.visible === true ? <ChartTooltip tip={tooltip} /> : null}
       </div>
     </motion.div>
   );

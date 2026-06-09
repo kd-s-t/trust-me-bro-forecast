@@ -25,9 +25,6 @@ export function patchChartRowsLivePrice(
   const next = rows.slice();
   const row = next[lastObsIdx]!;
   next[lastObsIdx] = { ...row, observed: price };
-  if (next[lastObsIdx]!.forecast !== null) {
-    next[lastObsIdx] = { ...next[lastObsIdx]!, forecast: price };
-  }
   return next;
 }
 
@@ -55,13 +52,11 @@ export function upsertObservedLivePoint(
     return patchChartRowsLivePrice(rows, price);
   }
   const next = rows.slice();
-  const anchorForecast = last.forecast !== null ? price : null;
-  next[lastObsIdx] = { ...last, forecast: anchorForecast };
   next.splice(lastObsIdx + 1, 0, {
     timeMs,
     label: new Date(timeMs).toISOString().slice(0, 10),
     observed: price,
-    forecast: anchorForecast,
+    forecast: null,
     forecastNote: null,
     aiForecast: null,
     aiForecastNote: null,

@@ -29,11 +29,7 @@ export function ChartMarketRefresh({
         "inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-60",
         className,
       )}
-      aria-label={
-        historyView === "24h"
-          ? "Update 24 hour market data"
-          : "Update full chart market data"
-      }
+      aria-label={`Update ${historyView} market data`}
       aria-busy={syncing}
     >
       {syncing ? (

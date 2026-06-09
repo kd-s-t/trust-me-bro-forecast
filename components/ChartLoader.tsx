@@ -34,6 +34,8 @@ import {
 import { unlockBetBelowAlertSound } from "@/lib/chart/betBelowSound";
 import {
   type ChartHistoryView,
+  chartViewShowsForecast,
+  DEFAULT_CHART_HISTORY_VIEW,
   getStoredChartHistoryView,
 } from "@/lib/chart/historyView";
 
@@ -51,7 +53,9 @@ type State =
 
 export function ChartLoader() {
   const [state, setState] = useState<State>({ kind: "loading" });
-  const [historyView, setHistoryView] = useState<ChartHistoryView>("default");
+  const [historyView, setHistoryView] = useState<ChartHistoryView>(
+    DEFAULT_CHART_HISTORY_VIEW,
+  );
   const [betEntry, setBetEntry] = useState<BetEntrySnapshot | null>(null);
   const [livePriceUsd, setLivePriceUsd] = useState<number | null>(null);
   const [marketSyncing, setMarketSyncing] = useState(false);
@@ -154,10 +158,7 @@ export function ChartLoader() {
     });
 
     try {
-      const historyUrl =
-        activeView === "24h"
-          ? "/api/history?view=24h"
-          : "/api/history";
+      const historyUrl = `/api/history?view=${encodeURIComponent(activeView)}`;
 
       const historyRes = await fetch(historyUrl, { cache: "no-store" });
       const historyBody = (await historyRes.json()) as HistoryApiPayload & {
@@ -170,7 +171,7 @@ export function ChartLoader() {
       }
 
       let forecast: ForecastApiPayload | null = null;
-      if (activeView !== "24h") {
+      if (chartViewShowsForecast(activeView)) {
         const runId = getSelectedForecastRunId();
         const forecastUrl =
           runId !== null && runId !== ""

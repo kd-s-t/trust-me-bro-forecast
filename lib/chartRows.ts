@@ -1,6 +1,9 @@
 import { formatChartTimeLabel } from "@/lib/chart/formatChartTime";
-import type { ChartHistoryView } from "@/lib/chart/historyView";
-import { forecastTailAfterObserved } from "@/lib/chart/anchorForecast";
+import {
+  type ChartHistoryView,
+  chartViewIsIntraday,
+  chartViewShowsForecast,
+} from "@/lib/chart/historyView";
 import type { PricePoint } from "./history";
 import type { UtcDayRangeMs } from "./timeRange";
 
@@ -15,15 +18,46 @@ export type ChartRow = {
   btcAmount: number;
 };
 
+/** Plot saved forecast points as-is — no trimming or live re-anchor. */
+function mergeForecastPoints(
+  rows: ChartRow[],
+  forecast: PricePoint[],
+  labelAt: (timeMs: number) => string,
+): void {
+  for (let i = 0; i < forecast.length; i++) {
+    const p = forecast[i]!;
+    const idx = rows.findIndex((r) => r.timeMs === p.timeMs);
+    if (idx >= 0) {
+      rows[idx] = {
+        ...rows[idx]!,
+        forecast: p.price,
+        forecastNote: p.note ?? null,
+      };
+    } else {
+      rows.push({
+        timeMs: p.timeMs,
+        label: labelAt(p.timeMs),
+        observed: null,
+        forecast: p.price,
+        forecastNote: p.note ?? null,
+        aiForecast: null,
+        aiForecastNote: null,
+        btcAmount: p.amount,
+      });
+    }
+  }
+  rows.sort((a, b) => a.timeMs - b.timeMs);
+}
+
 export function buildChartRows(
   observed: PricePoint[],
   forecast: PricePoint[],
   aiSeries?: PricePoint[],
   aiViewRange?: UtcDayRangeMs,
-  historyView: ChartHistoryView = "default",
+  historyView: ChartHistoryView = "1d",
 ): ChartRow[] {
-  const intraday = historyView === "24h";
-  const showForecasts = !intraday;
+  const intraday = chartViewIsIntraday(historyView);
+  const showForecasts = chartViewShowsForecast(historyView);
   const labelAt = (timeMs: number): string =>
     formatChartTimeLabel(timeMs, intraday);
   const rows: ChartRow[] = [];
@@ -61,33 +95,18 @@ export function buildChartRows(
     });
   }
   const lastObs = observed[observed.length - 1]!;
-  const forecastTail = showForecasts
-    ? forecastTailAfterObserved(lastObs, forecast)
-    : [];
   rows.push({
     timeMs: lastObs.timeMs,
     label: labelAt(lastObs.timeMs),
     observed: lastObs.price,
-    forecast: forecastTail.length > 0 ? lastObs.price : null,
+    forecast: null,
     forecastNote: null,
     aiForecast: null,
     aiForecastNote: null,
     btcAmount: lastObs.amount,
   });
   if (showForecasts) {
-    for (let i = 0; i < forecastTail.length; i++) {
-      const p = forecastTail[i]!;
-      rows.push({
-        timeMs: p.timeMs,
-        label: labelAt(p.timeMs),
-        observed: null,
-        forecast: p.price,
-        forecastNote: p.note ?? null,
-        aiForecast: null,
-        aiForecastNote: null,
-        btcAmount: p.amount,
-      });
-    }
+    mergeForecastPoints(rows, forecast, labelAt);
     appendAiTail(rows, aiSeries, aiViewRange, intraday);
   }
   return rows;

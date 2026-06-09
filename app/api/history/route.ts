@@ -3,7 +3,7 @@ import { syncJobPayload } from "@/lib/api/syncJobPayload";
 import { requireAuth } from "@/lib/auth/requireAuth";
 import {
   type ChartHistoryView,
-  isChartHistoryView,
+  normalizeChartHistoryView,
 } from "@/lib/chart/historyView";
 import { loadHistoryPayload } from "@/lib/chart/loadHistoryPayload";
 import { DEFAULT_HISTORY_SYMBOL } from "@/lib/constants";
@@ -39,9 +39,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const viewParam = new URL(request.url).searchParams.get("view");
-  const view: ChartHistoryView = isChartHistoryView(viewParam)
-    ? viewParam
-    : "default";
+  const view: ChartHistoryView = normalizeChartHistoryView(viewParam);
 
   try {
     const data = await loadHistoryPayload(view);

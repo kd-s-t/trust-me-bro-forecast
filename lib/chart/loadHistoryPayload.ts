@@ -1,7 +1,9 @@
-import type { ChartHistoryView } from "@/lib/chart/historyView";
+import {
+  type ChartHistoryView,
+  normalizeChartHistoryView,
+} from "@/lib/chart/historyView";
 import type { PricePoint } from "@/lib/history";
-import { loadHistory24h } from "@/lib/history/load24h";
-import { loadHistory } from "@/lib/history/load";
+import { loadHistoryForChartView } from "@/lib/history/loadChartView";
 
 export type HistoryApiPayload = {
   view: ChartHistoryView;
@@ -9,9 +11,10 @@ export type HistoryApiPayload = {
 };
 
 export async function loadHistoryPayload(
-  view: ChartHistoryView = "default",
+  view: ChartHistoryView = "1d",
 ): Promise<HistoryApiPayload> {
-  const points =
-    view === "24h" ? await loadHistory24h() : await loadHistory();
+  const points = await loadHistoryForChartView(view);
   return { view, points };
 }
+
+export { normalizeChartHistoryView };

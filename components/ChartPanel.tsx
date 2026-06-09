@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { ChartLoadingOverlay } from "@/components/ChartLoadingOverlay";
 import type { ChartHistoryView } from "@/lib/chart/historyView";
+import { DEFAULT_CHART_HISTORY_VIEW } from "@/lib/chart/historyView";
 import type { ChartRow } from "@/lib/chartRows";
 
 const BtcChart = dynamic(
@@ -25,7 +26,7 @@ type Props = {
 
 export function ChartPanel({
   rows,
-  historyView = "default",
+  historyView = DEFAULT_CHART_HISTORY_VIEW,
   forecastInsightLabel = null,
 }: Props) {
   return (

@@ -28,13 +28,32 @@ function klineToPoint(row: RawKline): PricePoint | null {
   return { timeMs, price: close, amount: 1 };
 }
 
-const MINUTE_MS = 60_000;
-
 /** 1m closes from `startTimeMs` (exclusive) through now — paginated. */
 export async function fetchBinanceMinuteKlinesSince(
   startTimeMs: number,
 ): Promise<PricePoint[]> {
+  return fetchBinanceKlinesSince("1m", startTimeMs);
+}
+
+export type BinanceKlineInterval = "1m" | "15m" | "1h" | "4h" | "1d";
+
+const DAY_MS = 86_400_000;
+
+const INTERVAL_MS: Record<BinanceKlineInterval, number> = {
+  "1m": 60_000,
+  "15m": 15 * 60_000,
+  "1h": 60 * 60_000,
+  "4h": 4 * 60 * 60_000,
+  "1d": DAY_MS,
+};
+
+/** Kline closes from `startTimeMs` (exclusive) through now — paginated. */
+export async function fetchBinanceKlinesSince(
+  interval: BinanceKlineInterval,
+  startTimeMs: number,
+): Promise<PricePoint[]> {
   const symbol = binanceMarketSymbol();
+  const stepMs = INTERVAL_MS[interval];
   const out: PricePoint[] = [];
   let cursor = startTimeMs + 1;
   const endMs = Date.now();
@@ -42,7 +61,7 @@ export async function fetchBinanceMinuteKlinesSince(
   while (cursor < endMs) {
     const rows = await binancePublicGet<RawKline[]>("/api/v3/klines", {
       symbol,
-      interval: "1m",
+      interval,
       startTime: String(cursor),
       limit: "1000",
     });
@@ -60,7 +79,7 @@ export async function fetchBinanceMinuteKlinesSince(
     if (rows.length < 1000) {
       break;
     }
-    const next = lastMs + MINUTE_MS;
+    const next = lastMs + stepMs;
     if (next <= cursor) {
       break;
     }
